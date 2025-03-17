@@ -58,13 +58,6 @@ echo "变更文件:"
 git status -s
 echo ""
 
-# 确认操作
-read -p "是否继续? (y/n): " CONFIRM
-if [ "$CONFIRM" != "y" ] && [ "$CONFIRM" != "Y" ]; then
-    echo "操作已取消"
-    exit 0
-fi
-
 # 添加所有变更
 echo "添加所有变更..."
 git add .

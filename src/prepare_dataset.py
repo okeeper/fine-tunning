@@ -170,7 +170,7 @@ def prepare_lccc_dataset(
     dataset_path = os.path.join(output_dir, dataset_name.split("/")[-1])
     if not os.path.exists(dataset_path):    
         logger.info(f"加载数据集: {dataset_name}")
-        dataset = load_dataset(dataset_name)
+        dataset = load_dataset(dataset_name, 'base')
         dataset.save_to_disk(dataset_path)
     else:
         logger.info(f"从本地加载数据集: {dataset_path}")
