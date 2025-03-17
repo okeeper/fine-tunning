@@ -178,7 +178,7 @@ def prepare_lccc_dataset(
     
     def convert_conversation_to_instruction(example):
         """将对话转换为指令格式"""
-        conversation = example["conversations"]
+        conversation = example["dialog"]
         
         # 过滤掉过长的对话
         if len(conversation) > max_turns * 2:
@@ -232,7 +232,7 @@ def prepare_lccc_dataset(
     logger.info("转换对话为指令格式")
     dataset = dataset.map(
         convert_conversation_to_instruction, 
-        remove_columns=["conversations"],
+        remove_columns=["dialog"],
         num_proc=os.cpu_count()
     )
     
