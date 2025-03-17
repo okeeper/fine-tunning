@@ -167,14 +167,8 @@ def prepare_lccc_dataset(
     os.makedirs(output_dir, exist_ok=True)
     
     # 第一次加载数据集后，保存数据集，目录名根据数据集名称命名
-    dataset_path = os.path.join(output_dir, dataset_name.split("/")[-1])
-    if not os.path.exists(dataset_path):    
-        logger.info(f"加载数据集: {dataset_name}")
-        dataset = load_dataset(dataset_name, 'base')
-        dataset.save_to_disk(dataset_path)
-    else:
-        logger.info(f"从本地加载数据集: {dataset_path}")
-        dataset = load_dataset(dataset_path)
+    logger.info(f"加载数据集: {dataset_name}")
+    dataset = load_dataset(dataset_name, 'base')
     
     def convert_conversation_to_instruction(example):
         """将对话转换为指令格式"""
