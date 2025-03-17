@@ -43,6 +43,7 @@ python src/evaluate.py --model_path ./output/llama2-7b-chat-lccc
 ├── README.md                 # 项目说明文档
 ├── requirements.txt          # 项目依赖
 ├── run_finetune.sh           # 一键运行脚本
+├── git_push.sh               # Git快速提交和推送脚本
 ├── config/                   # 配置文件目录
 │   └── finetune_config.json  # 微调配置文件
 ├── data/                     # 数据目录
@@ -53,6 +54,25 @@ python src/evaluate.py --model_path ./output/llama2-7b-chat-lccc
     ├── utils.py              # 工具函数
     └── config.py             # 配置类定义
 ```
+
+## Git快速提交和推送
+
+项目提供了一个便捷的Git操作脚本`git_push.sh`，用于快速提交和推送代码到远程仓库：
+
+```bash
+# 基本用法
+./git_push.sh "提交信息"
+
+# 指定分支
+./git_push.sh "提交信息" 分支名称
+```
+
+该脚本会自动执行以下操作：
+1. 添加所有变更文件（`git add .`）
+2. 提交变更（`git commit -m "提交信息"`）
+3. 推送到远程仓库（`git push origin 分支名称`）
+
+使用此脚本可以大大简化Git操作流程，提高开发效率。
 
 ## 详细使用说明
 

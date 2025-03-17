@@ -1,12 +1,12 @@
 {
     "model_args": {
-        "model_name_or_path": "meta-llama/Llama-2-7b-chat-hf",
+        "model_name_or_path": "/opt/llama/Llama-2-7b-chat",
         "use_auth_token": true,
         "trust_remote_code": false,
         "torch_dtype": "float16"
     },
     "data_args": {
-        "dataset_name": "thu-coai/lccc-base",
+        "dataset_name": "thu-coai/lccc",
         "dataset_config_name": null,
         "train_file": null,
         "validation_file": null,
