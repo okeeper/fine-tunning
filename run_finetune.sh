@@ -62,7 +62,7 @@ if [ "$PREPARE_DATA" = true ]; then
         echo ""
     else
         echo "开始准备数据集..."
-        python data/prepare_dataset.py --config_file "../$CONFIG_FILE" --output_dir "$DATA_DIR"
+        python src/prepare_dataset.py --config_file "../$CONFIG_FILE" --output_dir "$DATA_DIR"
         
         # 检查数据准备是否成功
         if [ $? -ne 0 ]; then
