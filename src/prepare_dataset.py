@@ -94,7 +94,7 @@ def parse_args():
     
     # 设置默认参数
     default_args = {
-        "dataset_name": "thu-coai/lccc-base",
+        "dataset_name": "thu-coai/lccc",
         "output_dir": "./data/processed",
         "val_size": 0.1,
         "seed": 42,
@@ -142,7 +142,7 @@ def parse_args():
     return final_args_obj
 
 def prepare_lccc_dataset(
-    dataset_name: str = "thu-coai/lccc-base",
+    dataset_name: str = "thu-coai/lccc",
     output_dir: str = "./data/processed",
     val_size: float = 0.1,
     seed: int = 42,
@@ -153,7 +153,7 @@ def prepare_lccc_dataset(
     准备LCCC中文对话数据集
     
     Args:
-        dataset_name: 数据集名称，可选 thu-coai/lccc-base 或 thu-coai/lccc
+        dataset_name: 数据集名称，thu-coai/lccc
         output_dir: 输出目录
         val_size: 验证集比例
         seed: 随机种子
@@ -286,7 +286,6 @@ def main():
     # 检查是否为LCCC数据集
     if not args.dataset_name.lower().startswith("thu-coai/lccc"):
         logger.error(f"不支持的数据集: {args.dataset_name}")
-        logger.error("当前仅支持LCCC中文对话数据集(thu-coai/lccc-base或thu-coai/lccc-large)")
         raise ValueError(f"不支持的数据集: {args.dataset_name}，请使用LCCC数据集")
     
     logger.info(f"准备处理LCCC数据集: {args.dataset_name}")
