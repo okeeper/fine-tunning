@@ -23,7 +23,11 @@ wandb login
 只需运行以下命令即可完成数据准备和模型微调：
 
 ```bash
+# GPU环境（推荐）
 bash run_finetune.sh
+
+# CPU环境（训练速度较慢）
+bash run_finetune.sh --use_cpu --max_samples 1000
 ```
 
 这将使用默认配置（LCCC-base数据集，LoRA微调）进行训练。训练完成后，模型将保存在`./output/llama2-7b-chat-lccc`目录中。
@@ -44,6 +48,7 @@ python src/evaluate.py --model_path ./output/llama2-7b-chat-lccc
 ├── requirements.txt          # 项目依赖
 ├── run_finetune.sh           # 一键运行脚本
 ├── git_push.sh               # Git快速提交和推送脚本
+├── fix_glibcxx.sh            # 修复GLIBCXX错误的脚本
 ├── config/                   # 配置文件目录
 │   └── finetune_config.json  # 微调配置文件
 ├── data/                     # 数据目录
@@ -96,8 +101,11 @@ python data/prepare_dataset.py
 微调训练使用LoRA技术，只训练少量参数，大大减少了计算资源需求：
 
 ```bash
-# 基本用法
+# 基本用法（GPU环境）
 bash run_finetune.sh
+
+# CPU环境（适用于没有GPU的情况）
+bash run_finetune.sh --use_cpu --max_samples 1000
 
 # 使用自定义配置文件
 bash run_finetune.sh --config_file config/my_custom_config.json
@@ -107,6 +115,9 @@ bash run_finetune.sh --skip_data_prep
 
 # 自定义参数
 bash run_finetune.sh --learning_rate 1e-5 --num_train_epochs 5
+
+# 查看所有可用选项
+bash run_finetune.sh --help
 ```
 
 ### 配置文件
@@ -136,6 +147,22 @@ bash run_finetune.sh --learning_rate 1e-5 --num_train_epochs 5
     }
 }
 ```
+
+### 修复常见错误
+
+项目提供了一个修复GLIBCXX错误的脚本`fix_glibcxx.sh`：
+
+```bash
+# 运行修复脚本
+./fix_glibcxx.sh
+```
+
+该脚本会自动执行以下操作：
+1. 备份原始库文件
+2. 安装更新的库文件
+3. 验证修复是否成功
+
+如果您遇到"GLIBCXX_3.4.32 not found"错误，可以尝试运行此脚本进行修复。
 
 ## LCCC数据集说明
 
@@ -171,6 +198,19 @@ A: 使用默认配置，在约10000个样本上训练3个epoch，通常可以看
 
 ### Q: 如何在训练后使用模型？
 A: 可以使用`src/evaluate.py`脚本进行交互式测试，或者使用Hugging Face的`pipeline`加载模型。
+
+### Q: 遇到"CUDA is required but not available for bitsandbytes"错误怎么办？
+A: 这表明您的环境中没有可用的CUDA或CUDA驱动版本过旧。您可以：
+   1. 使用CPU模式运行：`bash run_finetune.sh --use_cpu --max_samples 1000`
+   2. 更新NVIDIA驱动程序：访问 http://www.nvidia.com/Download/index.aspx
+   3. 检查CUDA安装：运行 `nvidia-smi` 查看CUDA版本
+
+### Q: 遇到"GLIBCXX_3.4.32 not found"错误怎么办？
+A: 这是由于系统库版本不匹配导致的。您可以：
+   1. 运行修复脚本：`./fix_glibcxx.sh`
+   2. 使用CPU模式运行：`bash run_finetune.sh --use_cpu`
+   3. 手动更新系统库：`conda install -c conda-forge libstdcxx-ng`
+   4. 或者在Docker容器中运行，以确保环境一致
 
 ## 参考资料
 

@@ -105,6 +105,13 @@ def parse_args():
         help="LoRA alpha参数"
     )
     
+    # 新增：CPU模式参数
+    parser.add_argument(
+        "--use_cpu",
+        action="store_true",
+        help="使用CPU进行训练（不使用量化）"
+    )
+    
     # 解析命令行参数
     args = parser.parse_args()
     
@@ -145,6 +152,9 @@ def parse_args():
     final_args["lora_alpha"] = args.lora_alpha or config.get("lora_args", {}).get("lora_alpha", 16)
     final_args["lora_dropout"] = config.get("lora_args", {}).get("lora_dropout", 0.05)
     final_args["target_modules"] = config.get("lora_args", {}).get("target_modules", ["q_proj", "v_proj", "k_proj", "o_proj", "gate_proj", "up_proj", "down_proj"])
+    
+    # CPU模式参数
+    final_args["use_cpu"] = args.use_cpu
     
     # 创建参数对象
     class Args:
@@ -196,26 +206,51 @@ def main():
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     
-    # 配置量化参数
-    bnb_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_use_double_quant=True,
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_compute_dtype=torch.float16
-    )
-    
-    # 加载模型
-    logger.info(f"加载模型: {args.model_name_or_path}")
-    model = AutoModelForCausalLM.from_pretrained(
-        args.model_name_or_path,
-        quantization_config=bnb_config,
-        device_map="auto",
-        use_auth_token=args.use_auth_token,
-        torch_dtype=getattr(torch, args.torch_dtype)
-    )
-    
-    # 准备模型进行量化训练
-    model = prepare_model_for_kbit_training(model)
+    # 根据是否使用CPU模式决定加载方式
+    if args.use_cpu:
+        logger.info("使用CPU模式加载模型（不使用量化）")
+        # CPU模式：使用float32或float16，不使用量化
+        model = AutoModelForCausalLM.from_pretrained(
+            args.model_name_or_path,
+            torch_dtype=getattr(torch, args.torch_dtype),
+            use_auth_token=args.use_auth_token,
+            device_map="auto"  # 在CPU上使用auto会自动使用CPU
+        )
+    else:
+        try:
+            # 配置量化参数
+            logger.info("尝试使用4bit量化加载模型")
+            bnb_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_use_double_quant=True,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_compute_dtype=torch.float16
+            )
+            
+            # 加载模型
+            model = AutoModelForCausalLM.from_pretrained(
+                args.model_name_or_path,
+                quantization_config=bnb_config,
+                device_map="auto",
+                use_auth_token=args.use_auth_token,
+                torch_dtype=getattr(torch, args.torch_dtype)
+            )
+            
+            # 准备模型进行量化训练
+            model = prepare_model_for_kbit_training(model)
+            
+        except Exception as e:
+            logger.warning(f"量化加载失败: {e}")
+            logger.info("回退到CPU模式加载模型")
+            
+            # 回退到CPU模式
+            model = AutoModelForCausalLM.from_pretrained(
+                args.model_name_or_path,
+                torch_dtype=getattr(torch, args.torch_dtype),
+                use_auth_token=args.use_auth_token,
+                device_map="cpu"
+            )
+            args.use_cpu = True
     
     # 配置LoRA
     logger.info("配置LoRA适配器")
@@ -251,6 +286,19 @@ def main():
         logger.error("请先运行 python data/prepare_dataset.py 准备数据集")
         sys.exit(1)
     
+    # 如果使用CPU模式，调整批次大小和梯度累积步数
+    if args.use_cpu:
+        logger.warning("CPU模式下训练速度会非常慢，建议减小批次大小和数据量")
+        # 如果批次大小大于1，则减小到1
+        if args.per_device_train_batch_size > 1:
+            logger.info(f"CPU模式下将批次大小从 {args.per_device_train_batch_size} 减小到 1")
+            args.per_device_train_batch_size = 1
+        
+        # 增加梯度累积步数
+        if args.gradient_accumulation_steps < 16:
+            logger.info(f"CPU模式下将梯度累积步数从 {args.gradient_accumulation_steps} 增加到 16")
+            args.gradient_accumulation_steps = 16
+    
     # 配置训练参数
     training_args = TrainingArguments(
         output_dir=args.output_dir,
@@ -266,7 +314,9 @@ def main():
         save_steps=args.save_steps,
         save_total_limit=args.save_total_limit,
         report_to="wandb",
-        remove_unused_columns=False
+        remove_unused_columns=False,
+        # 如果使用CPU，禁用fp16
+        fp16=not args.use_cpu
     )
     
     # 创建Trainer
