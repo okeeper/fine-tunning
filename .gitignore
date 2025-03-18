@@ -6,4 +6,4 @@ wandb/
 .env.test.local
 .env.production.local
 /logs
-config/
+local_file.md

@@ -251,8 +251,8 @@ def prepare_lccc_dataset(
     else:
         logger.info("使用数据集自带的验证集")
         train_dataset = dataset["train"]
-        val_dataset = dataset["validation"]
-    
+        # 按val_size时验证集的百分比，计算出train_dataset的长度*val_size，作为验证集的长度
+        val_dataset = dataset["validation"].select(range(int(len(train_dataset) * val_size)))
     # 保存处理后的数据集
     logger.info(f"保存处理后的数据集到 {output_dir}")
     train_dataset.save_to_disk(os.path.join(output_dir, "train"))
