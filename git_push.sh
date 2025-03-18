@@ -140,45 +140,8 @@ if [[ $CHANGES_TO_COMMIT -eq 0 && $STAGED_FILES -eq 0 ]]; then
     exit 0
 fi
 
-# 自动添加文件
-if [[ $ADD_ALL -eq 1 ]]; then
-    log_info "添加所有更改的文件..."
-    git add -A
-else
-    # 提示用户添加未跟踪的文件
-    if [[ $UNTRACKED_FILES -gt 0 ]]; then
-        echo -e "${YELLOW}发现 $UNTRACKED_FILES 个未跟踪的文件${NC}"
-        
-        if [[ $SKIP_CONFIRM -eq 0 ]]; then
-            read -p "是否添加所有未跟踪的文件? (y/n): " ADD_UNTRACKED
-            if [[ "$ADD_UNTRACKED" =~ ^[Yy]$ ]]; then
-                git ls-files --others --exclude-standard | xargs git add
-                log_info "已添加未跟踪的文件"
-            fi
-        else
-            # 自动添加未跟踪文件（如果指定了-y选项）
-            git ls-files --others --exclude-standard | xargs git add
-            log_info "已自动添加未跟踪的文件"
-        fi
-    fi
-    
-    # 提示用户添加已修改的文件
-    if [[ $MODIFIED_FILES -gt 0 || $DELETED_FILES -gt 0 ]]; then
-        echo -e "${YELLOW}发现 $MODIFIED_FILES 个已修改的文件和 $DELETED_FILES 个已删除的文件${NC}"
-        
-        if [[ $SKIP_CONFIRM -eq 0 ]]; then
-            read -p "是否添加所有已修改/删除的文件? (y/n): " ADD_MODIFIED
-            if [[ "$ADD_MODIFIED" =~ ^[Yy]$ ]]; then
-                git add -u
-                log_info "已添加所有已修改/删除的文件"
-            fi
-        else
-            # 自动添加已修改/删除的文件（如果指定了-y选项）
-            git add -u
-            log_info "已自动添加所有已修改/删除的文件"
-        fi
-    fi
-fi
+log_info "添加所有更改的文件..."
+git add -A
 
 # 再次显示状态
 print_git_status
@@ -191,38 +154,14 @@ if [[ $STAGED_FILES -eq 0 ]]; then
 fi
 
 # 提示输入提交信息（如果未提供）
-if [[ -z "$COMMIT_MSG" ]]; then
-    echo -e "${CYAN}请输入提交信息:${NC}"
-    read -p "> " COMMIT_MSG
-    
-    if [[ -z "$COMMIT_MSG" ]]; then
-        COMMIT_MSG="更新代码 $(date +'%Y-%m-%d %H:%M:%S')"
-        log_warning "使用默认提交信息: $COMMIT_MSG"
-    fi
-fi
-
+COMMIT_MSG="更新代码 $(date +'%Y-%m-%d %H:%M:%S')"
 # 提交更改
 log_info "提交更改..."
 git commit -m "$COMMIT_MSG"
 
-# 如果没有跳过推送，则推送到远程
-if [[ $SKIP_PUSH -eq 0 ]]; then
-    if [[ $SKIP_CONFIRM -eq 0 ]]; then
-        read -p "是否推送到远程 $REMOTE/$BRANCH? (y/n): " DO_PUSH
-        if [[ "$DO_PUSH" =~ ^[Yy]$ ]]; then
-            log_info "推送到远程 $REMOTE/$BRANCH..."
-            git push $REMOTE $BRANCH
-        else
-            log_info "跳过推送，只进行了本地提交"
-        fi
-    else
-        # 如果指定了-y选项，自动推送
-        log_info "推送到远程 $REMOTE/$BRANCH..."
-        git push $REMOTE $BRANCH
-    fi
-else
-    log_info "跳过推送，只进行了本地提交"
-fi
+  # 如果指定了-y选项，自动推送
+log_info "推送到远程 $REMOTE/$BRANCH..."
+git push $REMOTE $BRANCH
 
 log_info "操作完成！"
 
