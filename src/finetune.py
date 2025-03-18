@@ -412,9 +412,79 @@ def main():
         else:
             eval_dataset = None
             logger.warning("未找到验证集")
+            
+        # 添加数据处理逻辑，将文本格式转换为模型需要的格式
+        logger.info("处理数据集格式...")
+        
+        def preprocess_function(examples):
+            """处理数据集格式，将文本转换为模型所需的编码格式"""
+            # 显示数据集字段
+            if "instruction" not in examples or "response" not in examples:
+                logger.error(f"数据集缺少必要字段。现有字段: {examples.keys()}")
+                raise ValueError(f"数据集格式错误，缺少必要字段: 'instruction' 或 'response'")
+                
+            # 准备输入文本
+            inputs = []
+            for i in range(len(examples["instruction"])):
+                # 如果有input字段且不为空，则将其添加到instruction后
+                if "input" in examples and i < len(examples["input"]) and examples["input"][i]:
+                    inputs.append(f"{examples['instruction'][i]}\n{examples['input'][i]}")
+                else:
+                    inputs.append(examples["instruction"][i])
+            
+            # 对输入进行编码
+            model_inputs = tokenizer(
+                inputs, 
+                max_length=512,
+                padding="max_length",
+                truncation=True,
+                return_tensors="pt"
+            )
+            
+            # 对响应进行编码作为标签
+            with tokenizer.as_target_tokenizer():
+                labels = tokenizer(
+                    examples["response"],
+                    max_length=512, 
+                    padding="max_length",
+                    truncation=True,
+                    return_tensors="pt"
+                )
+            
+            model_inputs["labels"] = labels["input_ids"]
+            
+            # 返回处理后的数据
+            return model_inputs
+            
+        # 应用预处理函数
+        logger.info("处理训练集...")
+        columns_to_remove = [col for col in train_dataset.column_names if col not in ["instruction", "response", "input"]]
+        train_dataset = train_dataset.remove_columns(columns_to_remove) if columns_to_remove else train_dataset
+        train_dataset = train_dataset.map(
+            preprocess_function,
+            batched=True,
+            num_proc=1,  # CPU模式使用单进程
+            remove_columns=train_dataset.column_names,
+            desc="处理训练数据集",
+        )
+        
+        if eval_dataset is not None:
+            logger.info("处理验证集...")
+            columns_to_remove = [col for col in eval_dataset.column_names if col not in ["instruction", "response", "input"]]
+            eval_dataset = eval_dataset.remove_columns(columns_to_remove) if columns_to_remove else eval_dataset
+            eval_dataset = eval_dataset.map(
+                preprocess_function,
+                batched=True,
+                num_proc=1,
+                remove_columns=eval_dataset.column_names,
+                desc="处理验证数据集",
+            )
+            
+        logger.info("数据集处理完成")
+        
     except Exception as e:
-        logger.error(f"加载数据集失败: {e}")
-        logger.error("请先运行 python data/prepare_dataset.py 准备数据集")
+        logger.error(f"加载或处理数据集失败: {e}")
+        logger.error("请先运行 python src/prepare_dataset.py 准备数据集")
         sys.exit(1)
     
     # 如果使用CPU模式，调整批次大小和梯度累积步数
