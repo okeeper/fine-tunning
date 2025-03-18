@@ -165,6 +165,7 @@ def parse_args():
     
     # 模型参数
     final_args["model_name_or_path"] = args.model_name_or_path or config.get("model_args", {}).get("model_name_or_path", "meta-llama/Llama-2-7b-chat-hf")
+    final_args["local_model"] = args.local_model or config.get("model_args", {}).get("local_model", False)
     final_args["use_auth_token"] = args.use_auth_token or config.get("model_args", {}).get("use_auth_token", True)
     final_args["torch_dtype"] = args.torch_dtype or config.get("model_args", {}).get("torch_dtype", "float16")
     
