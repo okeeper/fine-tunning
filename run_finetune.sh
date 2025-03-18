@@ -75,7 +75,7 @@ fi
 echo "步骤2: 开始微调训练..."
 
 # 构建微调命令
-FINETUNE_CMD="python src/finetune.py --config_file $CONFIG_FILE --config_file --data_dir $DATA_DIR"
+FINETUNE_CMD="python src/finetune.py --config_file $CONFIG_FILE --local_model --data_dir $DATA_DIR"
 
 # 如果使用CPU模式，添加参数
 if [ "$USE_CPU" = true ]; then
