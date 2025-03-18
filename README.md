@@ -48,7 +48,12 @@ python src/evaluate.py --model_path ./output/llama2-7b-chat-lccc
 ├── requirements.txt          # 项目依赖
 ├── run_finetune.sh           # 一键运行脚本
 ├── git_push.sh               # Git快速提交和推送脚本
+├── check_nvidia.sh           # 检查NVIDIA驱动兼容性脚本
+├── check_model.sh            # 检查模型目录结构脚本
+├── fix_and_run.sh            # 综合解决方案脚本
+├── fix_model_path.sh         # 修复模型路径脚本
 ├── fix_glibcxx.sh            # 修复GLIBCXX错误的脚本
+├── download_model.sh         # 下载LLaMA模型脚本
 ├── config/                   # 配置文件目录
 │   └── finetune_config.json  # 微调配置文件
 ├── data/                     # 数据目录
@@ -211,6 +216,56 @@ A: 这是由于系统库版本不匹配导致的。您可以：
    2. 使用CPU模式运行：`bash run_finetune.sh --use_cpu`
    3. 手动更新系统库：`conda install -c conda-forge libstdcxx-ng`
    4. 或者在Docker容器中运行，以确保环境一致
+
+### Q: 遇到"Error no file named pytorch_model.bin..."错误怎么办？
+A: 这表明模型文件路径有问题。您可以：
+   1. 运行修复模型路径脚本：`./fix_model_path.sh`
+   2. 运行综合解决方案脚本：`./fix_and_run.sh --all`
+   3. 检查模型目录结构：`./check_model.sh`
+   4. 在运行命令中明确指定模型ID：`bash run_finetune.sh --use_cpu --model_name_or_path meta-llama/Llama-2-7b-chat-hf`
+   5. 如果您要使用本地模型，确保添加`--local_model`参数：`bash run_finetune.sh --model_name_or_path /path/to/model --local_model`
+
+### Q: 如何使用本地已下载的LLaMA模型？
+A: 要使用本地模型，请按照以下步骤操作：
+   1. 确保您的模型目录包含所有必要文件：
+      ```bash
+      ./check_model.sh --path /opt/llama/Llama-2-7b-chat
+      ```
+   2. 使用`fix_model_path.sh`脚本更新配置文件：
+      ```bash
+      ./fix_model_path.sh --model_path /opt/llama/Llama-2-7b-chat
+      ```
+   3. 或者在运行微调时直接指定：
+      ```bash
+      bash run_finetune.sh --model_name_or_path /opt/llama/Llama-2-7b-chat --local_model --use_cpu
+      ```
+
+   注意：使用本地模型路径时，添加`--local_model`参数非常重要，这将确保脚本正确处理本地路径。
+   
+### Q: 本地模型目录应该包含哪些文件？
+A: 一个有效的LLaMA模型目录应该包含以下文件：
+   - `config.json`：模型配置文件
+   - 模型权重文件：`pytorch_model.bin`或分片的`pytorch_model-00001-of-00003.bin`等
+   - 或者使用SafeTensors格式：`model.safetensors`或分片的`model-00001-of-00003.safetensors`
+   - 分词器文件：`tokenizer_config.json`、`tokenizer.model`、`special_tokens_map.json`
+   
+   您可以使用`check_model.sh`脚本检查您的模型目录是否包含所有必要文件。
+
+### Q: 如何下载LLaMA模型到本地使用？
+A: 我们提供了一个下载脚本，可以帮助您获取LLaMA模型：
+   ```bash
+   # 下载默认的7B聊天模型
+   ./download_model.sh
+   
+   # 下载指定模型到自定义目录
+   ./download_model.sh --model_id meta-llama/Llama-2-13b-chat-hf --output_dir /custom/path
+   ```
+   
+   下载完成后，您可以：
+   1. 更新配置文件：`./fix_model_path.sh --model_path /path/to/downloaded/model`
+   2. 或在运行时指定：`bash run_finetune.sh --model_name_or_path /path/to/downloaded/model --local_model`
+   
+   注意：下载LLaMA模型需要您有访问权限，请确保已登录Hugging Face账号：`huggingface-cli login`
 
 ## 参考资料
 

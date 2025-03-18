@@ -28,6 +28,7 @@ from peft import (
 )
 from datasets import load_from_disk
 import wandb
+import glob
 
 # 设置日志
 logging.basicConfig(
@@ -39,13 +40,13 @@ logger = logging.getLogger(__name__)
 
 def parse_args():
     """解析命令行参数"""
-    parser = argparse.ArgumentParser(description="Llama-2-7b-chat模型微调")
+    parser = argparse.ArgumentParser(description="对LLaMA模型进行微调")
     
     # 配置文件参数
     parser.add_argument(
         "--config_file",
         type=str,
-        default="config/finetune_config.json",
+        default="../config/finetune_config.json",
         help="配置文件路径"
     )
     
@@ -54,7 +55,7 @@ def parse_args():
         "--model_name_or_path",
         type=str,
         default=None,
-        help="预训练模型的路径或标识符"
+        help="模型名称或路径（优先级高于配置文件）"
     )
     
     # 数据参数
@@ -62,7 +63,7 @@ def parse_args():
         "--data_dir",
         type=str,
         default="./data/processed",
-        help="处理好的数据集目录"
+        help="预处理数据的目录"
     )
     
     # 训练参数
@@ -70,7 +71,7 @@ def parse_args():
         "--output_dir",
         type=str,
         default=None,
-        help="模型输出目录"
+        help="输出目录（优先级高于配置文件）"
     )
     parser.add_argument(
         "--num_train_epochs",
@@ -82,13 +83,25 @@ def parse_args():
         "--learning_rate",
         type=float,
         default=None,
-        help="学习率"
+        help="学习率（优先级高于配置文件）"
     )
     parser.add_argument(
         "--per_device_train_batch_size",
         type=int,
         default=None,
-        help="每个设备的训练批次大小"
+        help="每个设备的训练批次大小（优先级高于配置文件）"
+    )
+    parser.add_argument(
+        "--per_device_eval_batch_size",
+        type=int,
+        default=None,
+        help="每个设备的评估批次大小（优先级高于配置文件）"
+    )
+    parser.add_argument(
+        "--gradient_accumulation_steps",
+        type=int,
+        default=None,
+        help="梯度累积步数（优先级高于配置文件）"
     )
     
     # LoRA参数
@@ -109,7 +122,30 @@ def parse_args():
     parser.add_argument(
         "--use_cpu",
         action="store_true",
-        help="使用CPU进行训练（不使用量化）"
+        help="是否使用CPU进行训练（不使用量化）"
+    )
+    
+    # 新增：PyTorch数据类型参数
+    parser.add_argument(
+        "--torch_dtype",
+        type=str,
+        default="float16",
+        choices=["float16", "float32", "bfloat16"],
+        help="PyTorch数据类型"
+    )
+    
+    # 新增：Hugging Face认证令牌参数
+    parser.add_argument(
+        "--use_auth_token",
+        action="store_true",
+        help="是否使用Hugging Face认证令牌"
+    )
+    
+    # 新增：本地模型参数
+    parser.add_argument(
+        "--local_model",
+        action="store_true",
+        help="指定使用的是本地模型路径（不是Hugging Face模型ID）"
     )
     
     # 解析命令行参数
@@ -129,8 +165,8 @@ def parse_args():
     
     # 模型参数
     final_args["model_name_or_path"] = args.model_name_or_path or config.get("model_args", {}).get("model_name_or_path", "meta-llama/Llama-2-7b-chat-hf")
-    final_args["use_auth_token"] = config.get("model_args", {}).get("use_auth_token", True)
-    final_args["torch_dtype"] = config.get("model_args", {}).get("torch_dtype", "float16")
+    final_args["use_auth_token"] = args.use_auth_token or config.get("model_args", {}).get("use_auth_token", True)
+    final_args["torch_dtype"] = args.torch_dtype or config.get("model_args", {}).get("torch_dtype", "float16")
     
     # 数据参数
     final_args["data_dir"] = args.data_dir
@@ -140,8 +176,8 @@ def parse_args():
     final_args["num_train_epochs"] = args.num_train_epochs or config.get("training_args", {}).get("num_train_epochs", 3.0)
     final_args["learning_rate"] = args.learning_rate or config.get("training_args", {}).get("learning_rate", 2e-5)
     final_args["per_device_train_batch_size"] = args.per_device_train_batch_size or config.get("training_args", {}).get("per_device_train_batch_size", 4)
-    final_args["per_device_eval_batch_size"] = config.get("training_args", {}).get("per_device_eval_batch_size", 4)
-    final_args["gradient_accumulation_steps"] = config.get("training_args", {}).get("gradient_accumulation_steps", 8)
+    final_args["per_device_eval_batch_size"] = args.per_device_eval_batch_size or config.get("training_args", {}).get("per_device_eval_batch_size", 4)
+    final_args["gradient_accumulation_steps"] = args.gradient_accumulation_steps or config.get("training_args", {}).get("gradient_accumulation_steps", 8)
     final_args["warmup_ratio"] = config.get("training_args", {}).get("warmup_ratio", 0.03)
     final_args["logging_steps"] = config.get("training_args", {}).get("logging_steps", 10)
     final_args["save_steps"] = config.get("training_args", {}).get("save_steps", 100)
@@ -186,6 +222,58 @@ def main():
     # 解析参数
     args = parse_args()
     
+    # 检查模型路径是否正确（优先使用Hugging Face模型ID）
+    if args.model_name_or_path and args.model_name_or_path.startswith("/opt/llama/"):
+        logger.warning(f"检测到本地模型路径: {args.model_name_or_path}")
+        
+        # 检查用户是否明确指定使用本地路径
+        if args.local_model:
+            logger.info("用户指定使用本地模型路径")
+            
+            # 检查本地路径是否存在并包含模型文件
+            if os.path.exists(args.model_name_or_path):
+                # 检查模型路径下是否有必要的文件
+                config_exists = os.path.exists(os.path.join(args.model_name_or_path, "config.json"))
+                
+                # 检查是否有任何一种模型权重文件存在
+                model_files = [
+                    "pytorch_model.bin", "model.safetensors", "tf_model.h5", 
+                    "model.ckpt.index", "flax_model.msgpack"
+                ]
+                model_exists = any(os.path.exists(os.path.join(args.model_name_or_path, f)) for f in model_files)
+                
+                # 检查是否有分片模型文件
+                if not model_exists:
+                    pytorch_shards = glob.glob(os.path.join(args.model_name_or_path, "pytorch_model-*.bin"))
+                    safetensors_shards = glob.glob(os.path.join(args.model_name_or_path, "model-*.safetensors"))
+                    model_exists = len(pytorch_shards) > 0 or len(safetensors_shards) > 0
+                
+                if config_exists and model_exists:
+                    logger.info(f"本地模型路径验证成功: {args.model_name_or_path}")
+                else:
+                    error_messages = []
+                    if not config_exists:
+                        error_messages.append("缺少config.json文件")
+                    if not model_exists:
+                        error_messages.append("未找到任何模型权重文件")
+                    
+                    error_str = ", ".join(error_messages)
+                    logger.warning(f"本地模型路径验证失败: {error_str}")
+                    logger.warning("建议检查模型文件是否完整，或运行 ./check_model.sh 进行详细检查")
+                    
+                    if not args.use_cpu:
+                        logger.warning("使用本地模型路径可能需要CPU模式，自动切换到CPU模式")
+                        args.use_cpu = True
+            else:
+                logger.error(f"本地模型路径不存在: {args.model_name_or_path}")
+                logger.warning("将自动替换为Hugging Face模型ID")
+                args.model_name_or_path = "meta-llama/Llama-2-7b-chat-hf"
+                logger.info(f"已自动替换模型路径为: {args.model_name_or_path}")
+        else:
+            # 提示但不自动替换
+            logger.warning("推荐使用Hugging Face模型ID: meta-llama/Llama-2-7b-chat-hf")
+            logger.warning("如果确定要使用本地路径，请添加参数 --local_model")
+    
     # 设置随机种子
     set_seed(42)
     
@@ -208,49 +296,85 @@ def main():
     
     # 根据是否使用CPU模式决定加载方式
     if args.use_cpu:
-        logger.info("使用CPU模式加载模型（不使用量化）")
-        # CPU模式：使用float32或float16，不使用量化
-        model = AutoModelForCausalLM.from_pretrained(
-            args.model_name_or_path,
-            torch_dtype=getattr(torch, args.torch_dtype),
-            use_auth_token=args.use_auth_token,
-            device_map="auto"  # 在CPU上使用auto会自动使用CPU
-        )
+        logger.info(f"使用CPU模式加载模型（不使用量化）: {args.model_name_or_path}")
+        try:
+            # CPU模式：使用float32或float16，不使用量化
+            model = AutoModelForCausalLM.from_pretrained(
+                args.model_name_or_path,
+                torch_dtype=getattr(torch, args.torch_dtype),
+                use_auth_token=args.use_auth_token,
+                trust_remote_code=True,  # 增加此参数以支持自定义模型代码
+                device_map="cpu"   # 明确指定使用CPU
+            )
+            logger.info("模型加载成功")
+        except Exception as e:
+            logger.error(f"CPU模式加载模型失败: {e}")
+            
+            if "No file named" in str(e) and args.model_name_or_path.startswith("/"):
+                logger.error("本地模型文件路径有问题，请检查目录结构")
+                logger.error("建议运行: ./check_model.sh 检查模型文件")
+                logger.error("或使用: ./fix_model_path.sh 自动修复模型路径")
+            elif "No file named" in str(e):
+                logger.error("Hugging Face模型ID有问题，请检查是否拼写正确")
+                logger.error("请确认您已经登录Hugging Face账号: huggingface-cli login")
+            
+            logger.error("模型加载失败，程序退出")
+            sys.exit(1)
     else:
         try:
-            # 配置量化参数
-            logger.info("尝试使用4bit量化加载模型")
+            logger.info(f"尝试使用4bit量化加载模型: {args.model_name_or_path}")
+            # 检查是否存在GPU
+            if not torch.cuda.is_available():
+                raise RuntimeError("CUDA不可用，无法使用量化加载")
+                
+            # 使用BitsAndBytes进行4bit量化
             bnb_config = BitsAndBytesConfig(
                 load_in_4bit=True,
                 bnb_4bit_use_double_quant=True,
                 bnb_4bit_quant_type="nf4",
-                bnb_4bit_compute_dtype=torch.float16
+                bnb_4bit_compute_dtype=getattr(torch, args.torch_dtype)
             )
             
             # 加载模型
             model = AutoModelForCausalLM.from_pretrained(
                 args.model_name_or_path,
                 quantization_config=bnb_config,
-                device_map="auto",
                 use_auth_token=args.use_auth_token,
-                torch_dtype=getattr(torch, args.torch_dtype)
+                trust_remote_code=True,  # 增加此参数以支持自定义模型代码
+                device_map="auto"
             )
-            
-            # 准备模型进行量化训练
-            model = prepare_model_for_kbit_training(model)
-            
+            logger.info("模型量化加载成功")
         except Exception as e:
             logger.warning(f"量化加载失败: {e}")
-            logger.info("回退到CPU模式加载模型")
+            logger.info(f"回退到CPU模式加载模型: {args.model_name_or_path}")
             
-            # 回退到CPU模式
-            model = AutoModelForCausalLM.from_pretrained(
-                args.model_name_or_path,
-                torch_dtype=getattr(torch, args.torch_dtype),
-                use_auth_token=args.use_auth_token,
-                device_map="cpu"
-            )
-            args.use_cpu = True
+            try:
+                # 回退到CPU模式
+                model = AutoModelForCausalLM.from_pretrained(
+                    args.model_name_or_path,
+                    torch_dtype=getattr(torch, args.torch_dtype),
+                    use_auth_token=args.use_auth_token,
+                    trust_remote_code=True,  # 增加此参数以支持自定义模型代码
+                    device_map="cpu",
+                    # 禁用量化以避免bitsandbytes相关错误
+                    load_in_8bit=False,
+                    load_in_4bit=False
+                )
+                args.use_cpu = True
+                logger.info("CPU模式加载模型成功")
+            except Exception as e2:
+                logger.error(f"CPU模式加载也失败: {e2}")
+                
+                if "No file named" in str(e2) and args.model_name_or_path.startswith("/"):
+                    logger.error("本地模型文件路径有问题，请检查目录结构")
+                    logger.error("建议运行: ./check_model.sh 检查模型文件")
+                    logger.error("或使用: ./fix_model_path.sh 自动修复模型路径")
+                elif "No file named" in str(e2):
+                    logger.error("Hugging Face模型ID有问题，请检查是否拼写正确")
+                    logger.error("请确认您已经登录Hugging Face账号: huggingface-cli login")
+                
+                logger.error("模型加载失败，程序退出")
+                sys.exit(1)
     
     # 配置LoRA
     logger.info("配置LoRA适配器")
@@ -361,4 +485,35 @@ def main():
     logger.info(f"python src/evaluate.py --model_path {args.output_dir}")
 
 if __name__ == "__main__":
-    main() 
+    try:
+        main()
+    except Exception as e:
+        # 捕获所有未处理的异常并提供有用的建议
+        logger.error(f"运行时错误: {e}")
+        
+        # 根据错误类型提供不同的建议
+        error_str = str(e)
+        if "CUDA" in error_str or "GPU" in error_str:
+            logger.error("GPU相关错误。建议尝试:")
+            logger.error("1. 使用CPU模式: bash run_finetune.sh --use_cpu")
+            logger.error("2. 检查NVIDIA驱动兼容性: ./check_nvidia.sh")
+        elif "GLIBCXX" in error_str:
+            logger.error("GLIBCXX库错误。建议尝试:")
+            logger.error("1. 修复GLIBCXX: ./fix_glibcxx.sh")
+            logger.error("2. 使用综合解决方案: ./fix_and_run.sh --fix_glibcxx")
+        elif "No file named" in error_str:
+            logger.error("模型文件错误。建议尝试:")
+            logger.error("1. 检查模型目录: ./check_model.sh")
+            logger.error("2. 修复模型路径: ./fix_model_path.sh")
+            logger.error("3. 使用Hugging Face模型ID: ./fix_model_path.sh --use_hf")
+        else:
+            logger.error("未知错误。建议尝试:")
+            logger.error("1. 使用综合解决方案: ./fix_and_run.sh --all")
+            logger.error("2. 使用CPU模式并减少样本数: bash run_finetune.sh --use_cpu --max_samples 1000")
+        
+        # 打印完整的堆栈跟踪用于调试
+        import traceback
+        logger.debug("完整错误堆栈:")
+        logger.debug(traceback.format_exc())
+        
+        sys.exit(1) 

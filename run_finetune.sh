@@ -13,52 +13,6 @@ PREPARE_DATA=true
 USE_CPU=false
 MAX_SAMPLES=10000
 
-# 解析命令行参数
-while [[ $# -gt 0 ]]; do
-  case $1 in
-    --config_file)
-      CONFIG_FILE="$2"
-      shift 2
-      ;;
-    --data_dir)
-      DATA_DIR="$2"
-      shift 2
-      ;;
-    --skip_data_prep)
-      PREPARE_DATA=false
-      shift
-      ;;
-    --use_cpu)
-      USE_CPU=true
-      shift
-      ;;
-    --max_samples)
-      MAX_SAMPLES="$2"
-      shift 2
-      ;;
-    --help)
-      echo "用法: bash run_finetune.sh [选项]"
-      echo ""
-      echo "选项:"
-      echo "  --config_file FILE    指定配置文件路径 (默认: config/finetune_config.json)"
-      echo "  --data_dir DIR        指定数据目录 (默认: ./data/processed)"
-      echo "  --skip_data_prep      跳过数据准备步骤"
-      echo "  --use_cpu             使用CPU进行训练 (不使用量化)"
-      echo "  --max_samples N       限制训练样本数量 (默认: 10000)"
-      echo "  --help                显示此帮助信息"
-      echo ""
-      echo "示例:"
-      echo "  bash run_finetune.sh --use_cpu --max_samples 1000"
-      echo "  bash run_finetune.sh --skip_data_prep --learning_rate 1e-5"
-      exit 0
-      ;;
-    *)
-      # 将其他参数保存起来，传递给微调脚本
-      EXTRA_ARGS="$EXTRA_ARGS $1"
-      shift
-      ;;
-  esac
-done
 
 # 显示欢迎信息
 echo "=================================================="
@@ -121,7 +75,7 @@ fi
 echo "步骤2: 开始微调训练..."
 
 # 构建微调命令
-FINETUNE_CMD="python src/finetune.py --config_file $CONFIG_FILE --data_dir $DATA_DIR"
+FINETUNE_CMD="python src/finetune.py --config_file $CONFIG_FILE --config_file --data_dir $DATA_DIR"
 
 # 如果使用CPU模式，添加参数
 if [ "$USE_CPU" = true ]; then
