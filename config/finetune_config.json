@@ -1,6 +1,6 @@
 {
     "model_args": {
-        "model_name_or_path": "/opt/llama/Llama-2-7b-chat",
+        "model_name_or_path": "meta-llama/Llama-2-7b-chat-hf",
         "use_auth_token": true,
         "trust_remote_code": false,
         "torch_dtype": "float16"
