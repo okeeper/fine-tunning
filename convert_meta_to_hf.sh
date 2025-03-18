@@ -11,6 +11,7 @@ OUTPUT_DIR=""
 MODEL_SIZE="7B"
 CHAT_MODEL=false
 INSTALL_DEPS=true
+VOCAB_SIZE=32000  # 添加默认词表大小参数
 
 # 解析命令行参数
 while [[ $# -gt 0 ]]; do
@@ -35,6 +36,10 @@ while [[ $# -gt 0 ]]; do
       INSTALL_DEPS=false
       shift
       ;;
+    --vocab_size)  # 添加词表大小参数
+      VOCAB_SIZE="$2"
+      shift 2
+      ;;
     --help)
       echo "用法: ./convert_meta_to_hf.sh [选项]"
       echo ""
@@ -44,11 +49,13 @@ while [[ $# -gt 0 ]]; do
       echo "  --model_size SIZE     指定模型大小, 如 7B, 13B, 70B (默认: 7B)"
       echo "  --chat_model          指定是否为chat模型(添加此参数表示是chat模型)"
       echo "  --no_install_deps     不自动安装依赖"
+      echo "  --vocab_size SIZE     指定词表大小(默认: 32000)"
       echo "  --help                显示此帮助信息"
       echo ""
       echo "示例:"
       echo "  ./convert_meta_to_hf.sh --input_dir /opt/llama/Llama-2-7b-chat --output_dir /opt/llama/Llama-2-7b-chat-hf --chat_model"
       echo "  ./convert_meta_to_hf.sh --input_dir /opt/llama/Llama-2-13b --output_dir /opt/llama/Llama-2-13b-hf --model_size 13B"
+      echo "  ./convert_meta_to_hf.sh --input_dir /opt/llama/Llama-2-7b-chat --output_dir /opt/llama/Llama-2-7b-chat-hf --chat_model --vocab_size 32000"
       exit 0
       ;;
     *)
@@ -81,6 +88,7 @@ echo "输入目录: $INPUT_DIR"
 echo "输出目录: $OUTPUT_DIR"
 echo "模型大小: $MODEL_SIZE"
 echo "Chat模型: $([ "$CHAT_MODEL" = true ] && echo "是" || echo "否")"
+echo "词表大小: $VOCAB_SIZE"
 echo ""
 
 # 创建输出目录
@@ -151,10 +159,47 @@ fi
 echo "✓ 输入目录包含有效的Meta格式LLaMA模型"
 echo ""
 
-# 创建转换脚本
-echo "步骤3: 创建Python转换脚本..."
+# 尝试从params.json读取词表大小
+echo "步骤3: 分析模型参数..."
+if [ -f "$PARAMS_FILE" ]; then
+    # 尝试使用jq读取vocab_size
+    if command -v jq &> /dev/null; then
+        PARAMS_VOCAB_SIZE=$(jq -r '.vocab_size // 0' "$PARAMS_FILE")
+        if [ "$PARAMS_VOCAB_SIZE" != "0" ] && [ "$PARAMS_VOCAB_SIZE" != "null" ]; then
+            echo "从params.json检测到词表大小: $PARAMS_VOCAB_SIZE"
+            VOCAB_SIZE=$PARAMS_VOCAB_SIZE
+        fi
+    else
+        echo "未安装jq，无法自动从params.json读取vocab_size"
+        echo "使用默认词表大小: $VOCAB_SIZE"
+    fi
+else
+    echo "未找到params.json文件，使用默认词表大小: $VOCAB_SIZE"
+fi
 
-cat > "$TEMP_DIR/convert.py" << 'EOF'
+# 检查SentencePiece模型以估计词表大小
+if [ -f "$TOKENIZER_FILE" ]; then
+    echo "从tokenizer.model估计词表大小..."
+    TOKENIZER_VOCAB_SIZE=$(python -c "
+import sentencepiece as spm
+sp = spm.SentencePieceProcessor()
+sp.Load('$TOKENIZER_FILE')
+print(sp.GetPieceSize())
+" 2>/dev/null)
+    
+    if [ -n "$TOKENIZER_VOCAB_SIZE" ] && [ "$TOKENIZER_VOCAB_SIZE" -gt 0 ]; then
+        echo "从tokenizer.model检测到词表大小: $TOKENIZER_VOCAB_SIZE"
+        VOCAB_SIZE=$TOKENIZER_VOCAB_SIZE
+    fi
+fi
+
+echo "最终确定的词表大小: $VOCAB_SIZE"
+echo ""
+
+# 创建转换脚本
+echo "步骤4: 创建Python转换脚本..."
+
+cat > "$TEMP_DIR/convert.py" << EOF
 import os
 import json
 import torch
@@ -178,11 +223,35 @@ def load_meta_model(model_path: str, model_size: str) -> Tuple[dict, dict]:
     consolidated_path = os.path.join(model_path, "consolidated.00.pth")
     checkpoints = torch.load(consolidated_path, map_location="cpu")
     
+    # 打印模型参数信息
+    print("模型参数信息:")
+    for key, value in params.items():
+        print(f"  {key}: {value}")
+    
     return checkpoints, params
 
-def get_model_config(params: dict, model_size: str, chat_model: bool) -> LlamaConfig:
+def get_tokenizer_vocab_size(tokenizer_path: str) -> int:
+    """从tokenizer.model文件中获取词表大小"""
+    try:
+        sp = SentencePieceProcessor()
+        sp.Load(tokenizer_path)
+        vocab_size = sp.GetPieceSize()
+        print(f"从tokenizer.model获取的词表大小: {vocab_size}")
+        return vocab_size
+    except Exception as e:
+        print(f"无法从tokenizer获取词表大小: {e}")
+        return 0
+
+def get_model_config(params: dict, model_size: str, chat_model: bool, vocab_size: int) -> LlamaConfig:
     """创建Hugging Face模型配置"""
     print("创建模型配置...")
+    
+    # 确保vocab_size是合法的正数
+    if vocab_size <= 0:
+        vocab_size = 32000
+        print(f"警告: 词表大小无效，使用默认值: {vocab_size}")
+    else:
+        print(f"使用词表大小: {vocab_size}")
     
     # 根据模型大小调整参数
     if model_size == "7B":
@@ -214,7 +283,7 @@ def get_model_config(params: dict, model_size: str, chat_model: bool) -> LlamaCo
     
     # 创建配置
     config = LlamaConfig(
-        vocab_size=params.get("vocab_size", 32000),
+        vocab_size=vocab_size,
         hidden_size=dim,
         num_attention_heads=n_heads,
         num_hidden_layers=n_layers,
@@ -286,6 +355,20 @@ def convert_weights(meta_weights: dict, config: LlamaConfig) -> dict:
                     if meta_tensor.shape[0] == hf_state_dict[hf_name].shape[1] and meta_tensor.shape[1] == hf_state_dict[hf_name].shape[0]:
                         print(f"  执行转置 {meta_tensor.shape} -> {hf_state_dict[hf_name].shape}")
                         meta_tensor = meta_tensor.T
+                        
+                # 特殊处理embed_tokens.weight，可能需要调整大小
+                if hf_name == "model.embed_tokens.weight" and meta_tensor.shape[0] != hf_state_dict[hf_name].shape[0]:
+                    print(f"  调整embed_tokens大小 {meta_tensor.shape} -> {hf_state_dict[hf_name].shape}")
+                    if meta_tensor.shape[0] < hf_state_dict[hf_name].shape[0]:
+                        # 如果meta的词表小于HF配置的词表，进行填充
+                        padding = torch.zeros(
+                            (hf_state_dict[hf_name].shape[0] - meta_tensor.shape[0], meta_tensor.shape[1]),
+                            dtype=meta_tensor.dtype
+                        )
+                        meta_tensor = torch.cat([meta_tensor, padding], dim=0)
+                    else:
+                        # 如果meta的词表大于HF配置的词表，进行截断
+                        meta_tensor = meta_tensor[:hf_state_dict[hf_name].shape[0], :]
             
             new_state_dict[hf_name] = meta_tensor
         else:
@@ -366,17 +449,23 @@ def main():
     parser.add_argument("--output_dir", type=str, required=True, help="输出Hugging Face格式模型的目录")
     parser.add_argument("--model_size", type=str, default="7B", choices=["7B", "13B", "70B"], help="模型大小")
     parser.add_argument("--chat_model", action="store_true", help="是否为chat模型")
+    parser.add_argument("--vocab_size", type=int, default=${VOCAB_SIZE}, help="词表大小")
     
     args = parser.parse_args()
     
     # 创建输出目录
     os.makedirs(args.output_dir, exist_ok=True)
     
+    # 尝试从tokenizer获取词表大小
+    tokenizer_vocab_size = get_tokenizer_vocab_size(os.path.join(args.input_dir, "tokenizer.model"))
+    if tokenizer_vocab_size > 0 and args.vocab_size == ${VOCAB_SIZE}:  # 如果是默认值且分词器有有效值
+        args.vocab_size = tokenizer_vocab_size
+    
     # 加载Meta模型
     meta_weights, params = load_meta_model(args.input_dir, args.model_size)
     
     # 创建配置
-    config = get_model_config(params, args.model_size, args.chat_model)
+    config = get_model_config(params, args.model_size, args.chat_model, args.vocab_size)
     
     # 保存配置
     config.save_pretrained(args.output_dir)
@@ -432,8 +521,8 @@ echo "✓ 转换脚本已创建"
 echo ""
 
 # 运行转换脚本
-echo "步骤4: 运行转换脚本..."
-python "$TEMP_DIR/convert.py" --input_dir "$INPUT_DIR" --output_dir "$OUTPUT_DIR" --model_size "$MODEL_SIZE" $([ "$CHAT_MODEL" = true ] && echo "--chat_model")
+echo "步骤5: 运行转换脚本..."
+python "$TEMP_DIR/convert.py" --input_dir "$INPUT_DIR" --output_dir "$OUTPUT_DIR" --model_size "$MODEL_SIZE" --vocab_size "$VOCAB_SIZE" $([ "$CHAT_MODEL" = true ] && echo "--chat_model")
 
 # 检查转换是否成功
 if [ $? -ne 0 ]; then
@@ -443,7 +532,7 @@ fi
 
 # 验证转换结果
 echo ""
-echo "步骤5: 验证转换结果..."
+echo "步骤6: 验证转换结果..."
 
 # 检查必要的文件
 REQUIRED_FILES=("config.json" "pytorch_model.bin" "tokenizer.model" "tokenizer_config.json" "special_tokens_map.json")

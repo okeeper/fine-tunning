@@ -490,6 +490,32 @@ ls -la /opt/llama/Llama-2-7b-chat
    bash run_finetune.sh --local_model --per_device_train_batch_size 1 --gradient_accumulation_steps 16
    ```
 
+#### 问题: 转换时遇到"Trying to create tensor with negative dimension"错误
+
+错误信息:
+```
+RuntimeError: Trying to create tensor with negative dimension -1: [-1, 4096]
+```
+
+**解决方案:**
+1. 显式指定词表大小:
+   ```bash
+   # 使用32000作为词表大小(常用值)
+   ./convert_meta_to_hf.sh --input_dir /opt/llama/Llama-2-7b-chat --output_dir /opt/llama/Llama-2-7b-chat-hf --chat_model --vocab_size 32000
+   ```
+
+2. 使用更高版本的transformers库:
+   ```bash
+   pip install -U transformers
+   ```
+
+3. 如果问题依然存在，尝试使用默认参数:
+   ```bash
+   # 使用默认模型ID
+   ./fix_model_path.sh --use_hf
+   bash run_finetune.sh --use_cpu
+   ```
+
 #### 问题: 转换过程中出现错误或不完整
 
 **解决方案:**
@@ -510,5 +536,5 @@ ls -la /opt/llama/Llama-2-7b-chat
 3. 对于大型模型，可能需要调整转换脚本的参数:
    ```bash
    # 对于13B模型
-   ./convert_meta_to_hf.sh --input_dir /opt/llama/Llama-2-13b-chat --output_dir /opt/llama/Llama-2-13b-chat-hf --model_size 13B --chat_model
+   ./convert_meta_to_hf.sh --input_dir /opt/llama/Llama-2-13b-chat --output_dir /opt/llama/Llama-2-13b-chat-hf --model_size 13B --chat_model --vocab_size 32000
    ``` 
