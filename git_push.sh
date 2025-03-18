@@ -44,6 +44,11 @@ if [ -f "fix_pytorch.sh" ]; then
     echo "已添加执行权限到 fix_pytorch.sh"
 fi
 
+if [ -f "convert_meta_to_hf.sh" ]; then
+    chmod +x convert_meta_to_hf.sh
+    echo "已添加执行权限到 convert_meta_to_hf.sh"
+fi
+
 # 添加所有变更
 echo "添加所有变更..."
 git add .

@@ -334,4 +334,181 @@ bash run_finetune.sh --use_cpu --max_samples 1000 --per_device_train_batch_size 
 
 ## 许可证
 
-本项目使用MIT许可证。请注意，LLaMA模型有其自己的许可条款，使用前请查阅。 
+本项目使用MIT许可证。请注意，LLaMA模型有其自己的许可条款，使用前请查阅。
+
+## 使用指南
+
+### 1. 模型选择
+
+本项目支持多种方式加载LLaMA模型：
+
+#### 使用Hugging Face模型ID (推荐)
+
+推荐使用Hugging Face模型ID，这种方式会自动下载模型文件：
+
+```bash
+# 在配置文件中设置
+"model_name_or_path": "meta-llama/Llama-2-7b-chat-hf"
+
+# 或者通过命令行指定
+bash run_finetune.sh --model_name_or_path meta-llama/Llama-2-7b-chat-hf
+```
+
+注意：使用Hugging Face模型ID需要登录Hugging Face账号：
+
+```bash
+huggingface-cli login
+```
+
+#### 使用本地Hugging Face格式模型
+
+如果您已经下载了HF格式的LLaMA模型，可以直接使用本地路径：
+
+```bash
+# 在配置文件中设置
+"model_name_or_path": "/path/to/your/llama/model"
+
+# 或者通过命令行指定
+bash run_finetune.sh --model_name_or_path /path/to/your/llama/model --local_model
+```
+
+注意：使用本地路径时，请确保模型目录结构正确，包含以下文件：
+- `config.json`
+- 模型权重文件（`pytorch_model.bin`或分片的`pytorch_model-*.bin`文件）
+- 分词器文件（`tokenizer_config.json`、`tokenizer.model`等）
+
+您可以使用我们提供的脚本检查模型目录结构：
+
+```bash
+./check_model.sh --path /path/to/your/llama/model
+```
+
+#### 使用原始Meta格式LLaMA模型
+
+如果您有原始Meta格式的LLaMA模型（包含`consolidated.00.pth`、`params.json`等文件），您需要先将其转换为Hugging Face格式：
+
+```bash
+# 转换Meta格式模型为Hugging Face格式
+./convert_meta_to_hf.sh --input_dir /path/to/meta/llama --output_dir /path/to/hf/llama --chat_model
+```
+
+转换完成后，您可以使用转换后的模型路径：
+
+```bash
+# 更新配置文件
+./fix_model_path.sh --model_path /path/to/hf/llama
+
+# 运行微调
+bash run_finetune.sh --local_model
+```
+
+### 2. 数据准备
+
+数据准备步骤会自动将LCCC对话数据集转换为适合Llama-2模型的指令格式：
+
+```bash
+python data/prepare_dataset.py
+```
+
+参数说明：
+- `--dataset_name`: 数据集名称，可选 `thu-coai/lccc-base`（小规模）或 `thu-coai/lccc`（大规模）
+- `--max_samples`: 最大样本数量，用于调试或限制数据集大小
+- `--max_turns`: 对话最大轮次，控制每个对话样本的长度
+- `--output_dir`: 处理后数据集的输出目录，默认为 `./data/processed`
+- `--val_size`: 验证集比例，默认为 0.1
+
+## 常见问题和修复方案
+
+### 模型相关问题
+
+#### 问题: 找不到模型文件
+```
+Error no file named pytorch_model.bin, model.safetensors, tf_model.h5, model.ckpt.index or flax_model.msgpack found in directory /opt/llama/Llama-2-7b-chat.
+```
+
+**解决方案:**
+1. 检查模型目录:
+   ```bash
+   ./check_model.sh --path /opt/llama/Llama-2-7b-chat
+   ```
+   
+2. 修复模型路径:
+   ```bash
+   ./fix_model_path.sh --model_path /opt/llama/Llama-2-7b-chat
+   ```
+   
+3. 使用Hugging Face模型ID:
+   ```bash
+   ./fix_model_path.sh --use_hf
+   ```
+   
+4. 下载模型到本地:
+   ```bash
+   ./download_model.sh --output_dir /opt/llama/Llama-2-7b-chat
+   ```
+
+5. 如果您有原始Meta格式的模型（带有consolidated.00.pth文件），请转换为Hugging Face格式:
+   ```bash
+   ./convert_meta_to_hf.sh --input_dir /opt/llama/Llama-2-7b-chat --output_dir /opt/llama/Llama-2-7b-chat-hf --chat_model
+   ```
+
+### Meta格式LLaMA模型问题
+
+#### 问题: 模型是Meta原始格式（包含consolidated.00.pth而非pytorch_model.bin）
+```
+ls -la /opt/llama/Llama-2-7b-chat
+-rw-r--r-- 1 root root         100 Jul 20  2023 checklist.chk
+-rw-r--r-- 1 root root 13476925163 Jul 20  2023 consolidated.00.pth
+-rw-r--r-- 1 root root        7020 Jul 20  2023 LICENSE.txt
+-rw-r--r-- 1 root root         102 Jul 20  2023 params.json
+-rw-r--r-- 1 root root       10352 Jul 20  2023 README.md
+-rw-r--r-- 1 root root     1253223 Jul 20  2023 Responsible-Use-Guide.pdf
+-rw-r--r-- 1 root root          50 Jul 20  2023 tokenizer_checklist.chk
+-rw-r--r-- 1 root root      499723 Jul 20  2023 tokenizer.model
+-rw-r--r-- 1 root root        4766 Jul 20  2023 USE_POLICY.md
+```
+
+**解决方案:**
+1. 使用我们的转换脚本将Meta格式转换为Hugging Face格式:
+   ```bash
+   # 对于聊天模型
+   ./convert_meta_to_hf.sh --input_dir /opt/llama/Llama-2-7b-chat --output_dir /opt/llama/Llama-2-7b-chat-hf --chat_model
+   
+   # 对于基础模型
+   ./convert_meta_to_hf.sh --input_dir /opt/llama/Llama-2-7b --output_dir /opt/llama/Llama-2-7b-hf
+   ```
+
+2. 使用转换后的模型:
+   ```bash
+   ./fix_model_path.sh --model_path /opt/llama/Llama-2-7b-chat-hf
+   bash run_finetune.sh --local_model
+   ```
+
+3. 如果转换过程中遇到内存问题，可以尝试:
+   ```bash
+   # 使用较小的批处理大小
+   bash run_finetune.sh --local_model --per_device_train_batch_size 1 --gradient_accumulation_steps 16
+   ```
+
+#### 问题: 转换过程中出现错误或不完整
+
+**解决方案:**
+1. 检查您的Python环境是否安装了所有必要的依赖:
+   ```bash
+   pip install transformers torch numpy sentencepiece
+   ```
+
+2. 确保有足够的磁盘空间和内存:
+   ```bash
+   # 检查磁盘空间
+   df -h
+   
+   # 检查内存
+   free -h
+   ```
+
+3. 对于大型模型，可能需要调整转换脚本的参数:
+   ```bash
+   # 对于13B模型
+   ./convert_meta_to_hf.sh --input_dir /opt/llama/Llama-2-13b-chat --output_dir /opt/llama/Llama-2-13b-chat-hf --model_size 13B --chat_model
+   ``` 
