@@ -55,7 +55,7 @@ if [ "$PREPARE_DATA" = true ]; then
             DATASET_ARGS="$DATASET_ARGS --max_samples $MAX_SAMPLES"
         fi
         
-        python data/prepare_dataset.py $DATASET_ARGS
+        python src/prepare_dataset.py $DATASET_ARGS
         
         # 检查数据准备是否成功
         if [ $? -ne 0 ]; then
