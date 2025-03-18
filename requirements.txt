@@ -15,9 +15,12 @@ protobuf==3.20.3  # 避免与较新版本的兼容性问题
 datasets==2.13.0
 accelerate==0.20.3  # 兼容 PyTorch 1.12
 peft==0.4.0  # 稳定版本，支持 LoRA 等参数高效微调
-bitsandbytes==0.27.2  # 针对 CUDA 11.3 优化的版本
-deepspeed==0.9.5  # 可选，用于大规模分布式训练
+# 更新bitsandbytes版本到与PyTorch 1.12兼容的版本
+bitsandbytes==0.39.1  # 与PyTorch 1.12和CUDA 11.3兼容的较新版本
 safetensors==0.3.2
+
+# 可选的分布式训练支持
+# deepspeed==0.9.5 可根据需要取消注释
 
 # 训练监控和可视化
 wandb==0.15.5
@@ -44,4 +47,11 @@ ipywidgets>=8.0.0
 
 # 开发依赖
 black>=23.3.0
-isort>=5.12.0 
+isort>=5.12.0
+
+# CPU-Only版本的备选安装（如果GPU不可用）
+# 取消注释下面的行并注释上面的PyTorch相关行以使用CPU版本
+# torch==1.12.1+cpu
+# torchvision==0.13.1+cpu
+# torchaudio==0.12.1+cpu
+# --extra-index-url https://download.pytorch.org/whl/cpu 
