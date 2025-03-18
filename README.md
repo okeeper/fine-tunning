@@ -17,7 +17,7 @@
 
 ```bash
 # 创建并激活虚拟环境
-conda create -n llama_ft_env python=3.12
+conda create -n llama_ft_env python=3.10
 conda activate llama_ft_env
 
 # 安装依赖

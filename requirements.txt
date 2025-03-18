@@ -1,8 +1,9 @@
 # 核心 PyTorch 包 - 针对 CUDA 11.3 优化
 # --extra-index-url https://download.pytorch.org/whl/cu113
-#torch==1.12.1+cu113
-#torchvision==0.13.1+cu113
-#torchaudio==0.12.1
+# torch==1.12.1+cu113
+# torchvision==0.13.1+cu113
+# torchaudio==0.12.1
+# 或使用conda安装：
 # conda install pytorch=1.12.1 torchvision=0.13.1 torchaudio=0.12.1 cudatoolkit=11.3 -c pytorch
 
 # Transformers 生态系统
@@ -15,12 +16,11 @@ protobuf==3.20.3  # 避免与较新版本的兼容性问题
 datasets==2.13.0
 accelerate==0.20.3  # 兼容 PyTorch 1.12
 peft==0.4.0  # 稳定版本，支持 LoRA 等参数高效微调
-# 更新bitsandbytes版本到与PyTorch 1.12兼容的版本
-bitsandbytes==0.39.1  # 与PyTorch 1.12和CUDA 11.3兼容的较新版本
+bitsandbytes==0.39.1  # 与PyTorch 1.12和CUDA 11.3兼容的版本
 safetensors==0.3.2
 
 # 可选的分布式训练支持
-# deepspeed==0.9.5 可根据需要取消注释
+# deepspeed==0.9.5  # 可根据需要取消注释
 
 # 训练监控和可视化
 wandb==0.15.5
@@ -51,7 +51,7 @@ isort>=5.12.0
 
 # CPU-Only版本的备选安装（如果GPU不可用）
 # 取消注释下面的行并注释上面的PyTorch相关行以使用CPU版本
+# --extra-index-url https://download.pytorch.org/whl/cpu
 # torch==1.12.1+cpu
 # torchvision==0.13.1+cpu
-# torchaudio==0.12.1+cpu
-# --extra-index-url https://download.pytorch.org/whl/cpu 
+# torchaudio==0.12.1+cpu 
