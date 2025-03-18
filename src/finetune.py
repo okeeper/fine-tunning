@@ -147,6 +147,10 @@ def parse_args():
         action="store_true",
         help="指定使用的是本地模型路径（不是Hugging Face模型ID）"
     )
+
+        # 添加token参数
+    parser.add_argument("--token", type=str, default=None, 
+                        help="Hugging Face token for accessing models")
     
     # 解析命令行参数
     args = parser.parse_args()
