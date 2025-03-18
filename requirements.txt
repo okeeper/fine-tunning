@@ -1,22 +1,40 @@
-transformers>=4.30.0
-datasets>=2.12.0
-accelerate>=0.20.0
-peft>=0.4.0
-bitsandbytes>=0.40.0
-sentencepiece>=0.1.99
-protobuf>=3.20.0
-trl>=0.4.7
-evaluate>=0.4.0
-scikit-learn>=1.2.0
-wandb>=0.15.0
-matplotlib>=3.7.0
-seaborn>=0.12.0
-numpy>=1.24.3
-pandas>=2.0.2
-tqdm>=4.65.0
-nltk>=3.8.0
-rouge>=1.0.1
-jieba>=0.42.1
+# 核心 PyTorch 包 - 针对 CUDA 11.3 优化
+torch==1.12.1
+torchvision==0.13.1
+torchaudio==0.12.1
+
+# Transformers 生态系统
+transformers==4.30.2
+tokenizers==0.13.3
+sentencepiece==0.1.99
+protobuf==3.20.3  # 避免与较新版本的兼容性问题
+
+# 数据处理与训练优化
+datasets==2.13.0
+accelerate==0.20.3  # 兼容 PyTorch 1.12
+peft==0.4.0  # 稳定版本，支持 LoRA 等参数高效微调
+bitsandbytes==0.27.2  # 针对 CUDA 11.3 优化的版本
+deepspeed==0.9.5  # 可选，用于大规模分布式训练
+safetensors==0.3.2
+
+# 训练监控和可视化
+wandb==0.15.5
+tensorboard==2.13.0
+tqdm==4.65.0
+
+# 工具和辅助库
+numpy==1.24.3
+scipy==1.10.1
+scikit-learn==1.2.2
+pandas==2.0.2
+huggingface-hub==0.16.4
+nltk==3.8.1
+regex==2023.6.3
+
+# 依赖版本固定
+packaging==23.1
+typing-extensions==4.5.0
+filelock==3.12.2
 
 # 笔记本依赖
 jupyter>=1.0.0
