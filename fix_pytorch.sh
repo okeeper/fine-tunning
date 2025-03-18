@@ -1,227 +1,466 @@
 #!/bin/bash
 
 echo "=================================================="
-echo "  PyTorch 与 CUDA 兼容性修复"
+echo "  PyTorch 环境修复工具"
+echo "  用于解决依赖冲突和 CUDA 兼容性问题"
 echo "=================================================="
 echo ""
+
+# 设置日志颜色
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # 无颜色
+
+# 日志函数
+log_info() {
+    echo -e "${BLUE}[INFO]${NC} $1"
+}
+
+log_success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $1"
+}
+
+log_warning() {
+    echo -e "${YELLOW}[WARNING]${NC} $1"
+}
+
+log_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
+# 检查命令是否存在
+check_command() {
+    if ! command -v $1 &> /dev/null; then
+        log_error "$1 命令未找到，请先安装"
+        return 1
+    fi
+    return 0
+}
 
 # 检查当前环境
-PYTHON_VERSION=$(python --version 2>&1 | awk '{print $2}')
-echo "Python 版本: $PYTHON_VERSION"
-
-# 检查CUDA版本
-if command -v nvcc &> /dev/null; then
-    CUDA_VERSION=$(nvcc --version | grep "release" | awk '{print $5}' | cut -d',' -f1)
-    echo "检测到CUDA版本: $CUDA_VERSION"
-else
-    echo "未检测到CUDA，将使用CPU版本"
-    CUDA_VERSION="none"
-fi
-
-# 检查是否在conda环境中
-if [ -z "$CONDA_PREFIX" ]; then
-    echo "警告: 未检测到激活的conda环境"
-    echo "建议在conda环境中运行此脚本"
-    echo ""
-    read -p "是否继续? (y/n): " continue_without_conda
-    if [[ ! "$continue_without_conda" =~ ^[Yy]$ ]]; then
-        echo "操作取消。请创建并激活conda环境后再试"
+check_environment() {
+    log_info "正在检查当前环境..."
+    
+    # 检查 Python 版本
+    if check_command python; then
+        PYTHON_VERSION=$(python --version 2>&1 | awk '{print $2}')
+        log_info "Python 版本: $PYTHON_VERSION"
+    else
+        log_error "未找到 Python，请先安装"
         exit 1
     fi
-fi
-
-echo "选择安装方法:"
-echo "1) 使用conda安装 (推荐)"
-echo "2) 使用pip安装"
-echo "3) 安装CPU版本 (无需CUDA)"
-echo "4) 创建新的conda环境"
-read -p "请选择 [1-4]: " choice
-
-case $choice in
-    1)
-        echo ""
-        echo "步骤1: 使用conda安装PyTorch..."
-        
-        if [[ "$CUDA_VERSION" == "10.2" ]]; then
-            echo "安装与CUDA 10.2兼容的PyTorch 1.10.1..."
-            conda install -y pytorch=1.10.1 torchvision=0.11.2 torchaudio=0.10.1 cudatoolkit=10.2 -c pytorch
-        elif [[ "$CUDA_VERSION" == "11.3" || "$CUDA_VERSION" == "11.4" || "$CUDA_VERSION" == "11.5" || "$CUDA_VERSION" == "11.6" ]]; then
-            echo "安装与CUDA 11.3/11.6兼容的PyTorch 1.12.1..."
-            conda install -y pytorch=1.12.1 torchvision=0.13.1 torchaudio=0.12.1 cudatoolkit=11.3 -c pytorch
-        elif [[ "$CUDA_VERSION" == "11.7" || "$CUDA_VERSION" == "11.8" ]]; then
-            echo "安装与CUDA 11.7/11.8兼容的PyTorch 1.13.1..."
-            conda install -y pytorch=1.13.1 torchvision=0.14.1 torchaudio=0.13.1 pytorch-cuda=11.7 -c pytorch -c nvidia
-        elif [[ "$CUDA_VERSION" == "12."* ]]; then
-            echo "安装与CUDA 12.x兼容的PyTorch 2.0.0+..."
-            conda install -y pytorch torchvision torchaudio pytorch-cuda=12.1 -c pytorch -c nvidia
-        else
-            echo "未能识别CUDA版本或没有CUDA，将安装CPU版本的PyTorch 1.10.1..."
-            conda install -y pytorch=1.10.1 torchvision=0.11.2 torchaudio=0.10.1 cpuonly -c pytorch
-        fi
-        ;;
-    2)
-        echo ""
-        echo "步骤1: 使用pip安装PyTorch..."
-        
-        # 卸载现有PyTorch
-        pip uninstall -y torch torchvision torchaudio
-        
-        if [[ "$CUDA_VERSION" == "10.2" ]]; then
-            echo "安装与CUDA 10.2兼容的PyTorch 1.10.1..."
-            pip install torch==1.10.1 torchvision==0.11.2 torchaudio==0.10.1 -f https://download.pytorch.org/whl/torch_stable.html
-        elif [[ "$CUDA_VERSION" == "11.3" || "$CUDA_VERSION" == "11.4" || "$CUDA_VERSION" == "11.5" || "$CUDA_VERSION" == "11.6" ]]; then
-            echo "安装与CUDA 11.3/11.6兼容的PyTorch 1.12.1..."
-            pip install torch==1.12.1+cu113 torchvision==0.13.1+cu113 torchaudio==0.12.1 --extra-index-url https://download.pytorch.org/whl/cu113
-        elif [[ "$CUDA_VERSION" == "11.7" || "$CUDA_VERSION" == "11.8" ]]; then
-            echo "安装与CUDA 11.7/11.8兼容的PyTorch 1.13.1..."
-            pip install torch==1.13.1+cu117 torchvision==0.14.1+cu117 torchaudio==0.13.1 --extra-index-url https://download.pytorch.org/whl/cu117
-        elif [[ "$CUDA_VERSION" == "12."* ]]; then
-            echo "安装与CUDA 12.x兼容的PyTorch 2.0.0+..."
-            pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
-        else
-            echo "未能识别CUDA版本或没有CUDA，将安装CPU版本的PyTorch 1.10.1..."
-            pip install torch==1.10.1 torchvision==0.11.2 torchaudio==0.10.1 --index-url https://download.pytorch.org/whl/cpu
-        fi
-        ;;
-    3)
-        echo ""
-        echo "步骤1: 安装CPU版本的PyTorch..."
-        
-        # 卸载现有PyTorch
-        pip uninstall -y torch torchvision torchaudio
-        
-        # 安装CPU版本
-        echo "安装CPU版本的PyTorch 1.10.1..."
-        pip install torch==1.10.1 torchvision==0.11.2 torchaudio==0.10.1 --index-url https://download.pytorch.org/whl/cpu
-        ;;
-    4)
-        echo ""
-        echo "步骤1: 创建新的conda环境..."
-        read -p "输入新环境名称 [默认: llama_cuda_env]: " env_name
-        env_name=${env_name:-llama_cuda_env}
-        
-        if [[ "$CUDA_VERSION" == "10.2" ]]; then
-            echo "创建与CUDA 10.2兼容的新环境 $env_name..."
-            conda create -n $env_name python=3.8 -y
-            conda install -n $env_name -y pytorch=1.10.1 torchvision=0.11.2 torchaudio=0.10.1 cudatoolkit=10.2 -c pytorch
-        elif [[ "$CUDA_VERSION" == "11.3" || "$CUDA_VERSION" == "11.4" || "$CUDA_VERSION" == "11.5" || "$CUDA_VERSION" == "11.6" ]]; then
-            echo "创建与CUDA 11.3/11.6兼容的新环境 $env_name..."
-            conda create -n $env_name python=3.8 -y
-            conda install -n $env_name -y pytorch=1.12.1 torchvision=0.13.1 torchaudio=0.12.1 cudatoolkit=11.3 -c pytorch
-        elif [[ "$CUDA_VERSION" == "11.7" || "$CUDA_VERSION" == "11.8" ]]; then
-            echo "创建与CUDA 11.7/11.8兼容的新环境 $env_name..."
-            conda create -n $env_name python=3.9 -y
-            conda install -n $env_name -y pytorch=1.13.1 torchvision=0.14.1 torchaudio=0.13.1 pytorch-cuda=11.7 -c pytorch -c nvidia
-        elif [[ "$CUDA_VERSION" == "12."* ]]; then
-            echo "创建与CUDA 12.x兼容的新环境 $env_name..."
-            conda create -n $env_name python=3.10 -y
-            conda install -n $env_name -y pytorch torchvision torchaudio pytorch-cuda=12.1 -c pytorch -c nvidia
-        else
-            echo "未能识别CUDA版本或没有CUDA，将创建CPU版本的环境 $env_name..."
-            conda create -n $env_name python=3.8 -y
-            conda install -n $env_name -y pytorch=1.10.1 torchvision=0.11.2 torchaudio=0.10.1 cpuonly -c pytorch
-        fi
-        
-        # 安装其他依赖
-        echo ""
-        echo "安装其他依赖..."
-        conda run -n $env_name pip install transformers accelerate peft trl
-        conda run -n $env_name pip install datasets wandb
-        
-        echo ""
-        echo "新环境 $env_name 已创建并安装了兼容的PyTorch。"
-        echo "请使用以下命令切换到新环境:"
-        echo "  conda activate $env_name"
-        exit 0
-        ;;
-    *)
-        echo "无效选择"
+    
+    # 检查 pip 版本
+    if check_command pip; then
+        PIP_VERSION=$(pip --version | awk '{print $2}')
+        log_info "pip 版本: $PIP_VERSION"
+    else
+        log_error "未找到 pip，请先安装"
         exit 1
-        ;;
-esac
-
-# 安装其他依赖
-echo ""
-echo "步骤2: 安装其他依赖..."
-pip install -U transformers accelerate peft trl datasets wandb
-
-# 如果是CUDA 10.2，安装兼容的bitsandbytes版本
-if [[ "$CUDA_VERSION" == "10.2" ]]; then
+    fi
+    
+    # 检查 conda
+    if command -v conda &> /dev/null; then
+        CONDA_VERSION=$(conda --version | awk '{print $2}')
+        log_info "Conda 版本: $CONDA_VERSION"
+        CONDA_AVAILABLE=true
+    else
+        log_info "未找到 Conda，将使用 pip 进行包管理"
+        CONDA_AVAILABLE=false
+    fi
+    
+    # 检查当前环境
+    if [ "$CONDA_AVAILABLE" = true ]; then
+        CURRENT_ENV=$(conda info --envs | grep "*" | awk '{print $1}')
+        log_info "当前 Conda 环境: $CURRENT_ENV"
+    fi
+    
+    # 检查 PyTorch 版本
+    if python -c "import torch" &> /dev/null; then
+        TORCH_VERSION=$(python -c "import torch; print(torch.__version__)")
+        log_info "PyTorch 版本: $TORCH_VERSION"
+        
+        # 检查 CUDA 可用性
+        CUDA_AVAILABLE=$(python -c "import torch; print(torch.cuda.is_available())")
+        if [ "$CUDA_AVAILABLE" = "True" ]; then
+            CUDA_VERSION=$(python -c "import torch; print(torch.version.cuda)")
+            log_info "CUDA 可用，版本: $CUDA_VERSION"
+        else
+            log_warning "CUDA 不可用"
+            
+            # 检查是否有 NVIDIA 驱动
+            if command -v nvidia-smi &> /dev/null; then
+                DRIVER_VERSION=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader)
+                log_info "NVIDIA 驱动版本: $DRIVER_VERSION"
+                
+                # 计算最大兼容的 CUDA 版本
+                DRIVER_MAJOR=$(echo $DRIVER_VERSION | cut -d. -f1)
+                if [ $DRIVER_MAJOR -ge 520 ]; then
+                    MAX_CUDA="12.1"
+                elif [ $DRIVER_MAJOR -ge 510 ]; then
+                    MAX_CUDA="11.8"
+                elif [ $DRIVER_MAJOR -ge 470 ]; then
+                    MAX_CUDA="11.4"
+                elif [ $DRIVER_MAJOR -ge 450 ]; then
+                    MAX_CUDA="11.0"
+                elif [ $DRIVER_MAJOR -ge 440 ]; then
+                    MAX_CUDA="10.2"
+                else
+                    MAX_CUDA="10.0"
+                fi
+                log_info "驱动支持的最大 CUDA 版本: $MAX_CUDA"
+            else
+                log_warning "未找到 NVIDIA 驱动"
+                MAX_CUDA="CPU"
+            fi
+        fi
+    else
+        log_warning "未安装 PyTorch"
+        TORCH_VERSION="未安装"
+        
+        # 检查是否有 NVIDIA 驱动
+        if command -v nvidia-smi &> /dev/null; then
+            DRIVER_VERSION=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader)
+            log_info "NVIDIA 驱动版本: $DRIVER_VERSION"
+            
+            # 计算最大兼容的 CUDA 版本
+            DRIVER_MAJOR=$(echo $DRIVER_VERSION | cut -d. -f1)
+            if [ $DRIVER_MAJOR -ge 520 ]; then
+                MAX_CUDA="12.1"
+            elif [ $DRIVER_MAJOR -ge 510 ]; then
+                MAX_CUDA="11.8"
+            elif [ $DRIVER_MAJOR -ge 470 ]; then
+                MAX_CUDA="11.4"
+            elif [ $DRIVER_MAJOR -ge 450 ]; then
+                MAX_CUDA="11.0"
+            elif [ $DRIVER_MAJOR -ge 440 ]; then
+                MAX_CUDA="10.2"
+            else
+                MAX_CUDA="10.0"
+            fi
+            log_info "驱动支持的最大 CUDA 版本: $MAX_CUDA"
+        else
+            log_warning "未找到 NVIDIA 驱动"
+            MAX_CUDA="CPU"
+        fi
+    fi
+    
+    # 检查依赖包
+    check_dependency() {
+        if python -c "import $1" &> /dev/null; then
+            VERSION=$(python -c "import $1; print($1.__version__)")
+            log_info "$1 版本: $VERSION"
+            return 0
+        else
+            log_warning "未安装 $1"
+            return 1
+        fi
+    }
+    
+    check_dependency transformers
+    check_dependency datasets
+    check_dependency peft
+    check_dependency accelerate
+    check_dependency bitsandbytes
+    check_dependency wandb
+    
     echo ""
-    echo "步骤3: 安装与CUDA 10.2兼容的bitsandbytes版本..."
-    pip uninstall -y bitsandbytes
-    pip install bitsandbytes==0.38.1
-fi
-
-# 验证安装
-echo ""
-echo "步骤4: 验证PyTorch安装..."
-python -c "
-import torch
-print(f'PyTorch版本: {torch.__version__}')
-print(f'CUDA可用: {torch.cuda.is_available()}')
-print(f'CUDA版本: {torch.version.cuda if torch.cuda.is_available() else \"N/A\"}')
-if torch.cuda.is_available():
-    print(f'GPU型号: {torch.cuda.get_device_name(0)}')
-    print(f'GPU内存: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.2f} GB')
-"
-
-# 更新配置文件
-echo ""
-echo "步骤5: 更新配置文件以提高兼容性..."
-CONFIG_FILE="config/finetune_config.json"
-
-if [ -f "$CONFIG_FILE" ]; then
-    # 备份配置文件
-    cp "$CONFIG_FILE" "${CONFIG_FILE}.backup"
-    echo "已备份配置文件到 ${CONFIG_FILE}.backup"
-    
-    # 更新配置
-    python -c "
-import json
-import os
-
-try:
-    with open('$CONFIG_FILE', 'r') as f:
-        config = json.load(f)
-    
-    # 根据环境调整训练参数
-    if 'training_args' in config:
-        # 对于较旧的CUDA版本或CPU模式，禁用fp16和bf16
-        if '$CUDA_VERSION' == '10.2' or '$CUDA_VERSION' == 'none':
-            config['training_args']['fp16'] = False
-            config['training_args']['bf16'] = False
-            # 调小批次大小
-            config['training_args']['per_device_train_batch_size'] = 1
-            config['training_args']['gradient_accumulation_steps'] = 16
-            # 降低学习率
-            config['training_args']['learning_rate'] = 1e-5
-    
-    # 保存更新后的配置
-    with open('$CONFIG_FILE', 'w') as f:
-        json.dump(config, f, indent=4)
-    print('成功更新配置文件以提高兼容性')
-except Exception as e:
-    print(f'更新配置文件时出错: {e}')
-"
-else
-    echo "警告: 找不到配置文件 $CONFIG_FILE"
-fi
-
-echo ""
-echo "=================================================="
-echo "  PyTorch 安装和配置完成"
-echo "=================================================="
-echo ""
-echo "推荐运行命令:"
-if [[ "$CUDA_VERSION" == "10.2" ]]; then
-    echo "bash run_finetune.sh --local_model --max_samples 1000"
+    log_info "环境检查完成"
     echo ""
-    echo "如果仍有问题，可以尝试CPU模式:"
-    echo "bash run_finetune.sh --use_cpu --local_model --max_samples 1000"
-elif [[ "$CUDA_VERSION" == "none" ]]; then
-    echo "bash run_finetune.sh --use_cpu --local_model --max_samples 1000"
-else
-    echo "bash run_finetune.sh --local_model"
-fi
-echo ""
+}
+
+# 显示修复选项
+show_options() {
+    echo "=================================================="
+    echo "  可用修复选项"
+    echo "=================================================="
+    echo ""
+    echo "1. 降级依赖包，使其与当前 PyTorch 版本兼容"
+    echo "   - 适合不想更改 PyTorch 版本的情况"
+    echo "   - 将安装与 PyTorch $TORCH_VERSION 兼容的依赖包版本"
+    echo ""
+    echo "2. 安装 CPU 版本的 PyTorch"
+    echo "   - 适合没有 GPU 或驱动问题无法解决的情况"
+    echo "   - 将安装最新的 CPU 版本 PyTorch 及兼容依赖"
+    echo ""
+    echo "3. 安装 CUDA 兼容版本的 PyTorch"
+    echo "   - 根据您的驱动版本，自动选择兼容的 CUDA 版本"
+    echo "   - 最大兼容 CUDA 版本: $MAX_CUDA"
+    echo ""
+    echo "4. 创建全新的 Conda 环境（推荐）"
+    echo "   - 完全重建环境，确保所有依赖一致"
+    echo "   - 将创建新环境并安装所有必要的包"
+    echo ""
+    echo "5. 退出"
+    echo ""
+    
+    read -p "请选择修复选项 (1-5): " OPTION
+    echo ""
+}
+
+# 降级依赖包
+downgrade_dependencies() {
+    log_info "正在降级依赖包..."
+    
+    # 获取 PyTorch 版本的主要部分（例如 1.12 而不是 1.12.1+cu113）
+    TORCH_MAJOR=$(echo $TORCH_VERSION | cut -d. -f1)
+    TORCH_MINOR=$(echo $TORCH_VERSION | cut -d. -f2)
+    
+    # 根据 PyTorch 版本选择兼容的依赖版本
+    if [ $TORCH_MAJOR -eq 1 ] && [ $TORCH_MINOR -lt 13 ]; then
+        # PyTorch < 1.13
+        log_info "为 PyTorch $TORCH_MAJOR.$TORCH_MINOR 安装兼容的依赖包"
+        pip uninstall -y accelerate
+        pip install accelerate==0.20.3
+        
+        pip uninstall -y bitsandbytes bitsandbytes-cuda113
+        pip install bitsandbytes-cuda113==0.27.2 || pip install bitsandbytes==0.27.2
+        
+        pip uninstall -y peft
+        pip install peft==0.4.0
+        
+        pip install transformers==4.30.2
+        
+    elif [ $TORCH_MAJOR -eq 1 ] && [ $TORCH_MINOR -ge 13 ] && [ $TORCH_MINOR -lt 0 ]; then
+        # PyTorch >= 1.13 && < 2.0
+        log_info "为 PyTorch $TORCH_MAJOR.$TORCH_MINOR 安装兼容的依赖包"
+        pip uninstall -y accelerate
+        pip install accelerate==0.23.0
+        
+        pip uninstall -y bitsandbytes bitsandbytes-cuda113
+        pip install bitsandbytes==0.39.1
+        
+        pip uninstall -y peft
+        pip install peft==0.6.0
+        
+        pip install transformers==4.34.0
+        
+    else
+        # PyTorch >= 2.0 或 CPU 版本
+        log_info "为 PyTorch $TORCH_VERSION 安装最新的依赖包"
+        pip install accelerate
+        pip install bitsandbytes
+        pip install peft
+        pip install transformers
+    fi
+    
+    pip install datasets
+    pip install wandb
+    
+    log_success "依赖包降级完成"
+}
+
+# 安装 CPU 版本的 PyTorch
+install_cpu_pytorch() {
+    log_info "正在安装 CPU 版本的 PyTorch..."
+    
+    # 卸载现有的 PyTorch
+    log_info "卸载现有的 PyTorch..."
+    pip uninstall -y torch torchvision torchaudio
+    pip uninstall -y bitsandbytes bitsandbytes-cuda* 
+    
+    # 安装 CPU 版本的 PyTorch
+    log_info "安装 CPU 版本的 PyTorch 2.0.1..."
+    pip install torch==2.0.1 torchvision==0.15.2 torchaudio==2.0.2 --index-url https://download.pytorch.org/whl/cpu
+    
+    # 安装兼容的依赖包
+    log_info "安装兼容的依赖包..."
+    pip install transformers==4.34.0
+    pip install datasets
+    pip install bitsandbytes-cpu
+    pip install accelerate==0.23.0
+    pip install peft==0.6.0
+    pip install wandb
+    
+    log_success "CPU 版本的 PyTorch 安装完成"
+}
+
+# 安装 CUDA 兼容版本的 PyTorch
+install_cuda_pytorch() {
+    log_info "正在安装 CUDA 兼容版本的 PyTorch..."
+    
+    # 卸载现有的 PyTorch
+    log_info "卸载现有的 PyTorch..."
+    pip uninstall -y torch torchvision torchaudio
+    pip uninstall -y bitsandbytes bitsandbytes-cuda*
+    
+    # 根据最大兼容的 CUDA 版本安装 PyTorch
+    case $MAX_CUDA in
+        "12.1")
+            log_info "安装 PyTorch 2.1.0 (CUDA 12.1)..."
+            pip install torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cu121
+            ;;
+        "11.8"|"11.7"|"11.6")
+            log_info "安装 PyTorch 2.0.1 (CUDA 11.7)..."
+            pip install torch==2.0.1 torchvision==0.15.2 torchaudio==2.0.2 --index-url https://download.pytorch.org/whl/cu117
+            ;;
+        "11.5"|"11.4"|"11.3")
+            log_info "安装 PyTorch 1.13.1 (CUDA 11.6)..."
+            pip install torch==1.13.1 torchvision==0.14.1 torchaudio==0.13.1 --index-url https://download.pytorch.org/whl/cu116
+            ;;
+        "11.2"|"11.1"|"11.0")
+            log_info "安装 PyTorch 1.10.1 (CUDA 11.3)..."
+            pip install torch==1.10.1 torchvision==0.11.2 torchaudio==0.10.1 --extra-index-url https://download.pytorch.org/whl/cu113
+            ;;
+        "10.2")
+            log_info "安装 PyTorch 1.9.1 (CUDA 10.2)..."
+            pip install torch==1.9.1 torchvision==0.10.1 torchaudio==0.9.1 --extra-index-url https://download.pytorch.org/whl/cu102
+            ;;
+        *)
+            log_warning "无法确定兼容的 CUDA 版本，回退到 CPU 版本..."
+            install_cpu_pytorch
+            return
+            ;;
+    esac
+    
+    # 安装兼容的依赖包
+    log_info "安装兼容的依赖包..."
+    if [[ $MAX_CUDA == "12.1" || $MAX_CUDA == "11.8" || $MAX_CUDA == "11.7" || $MAX_CUDA == "11.6" ]]; then
+        # 较新版本的 PyTorch
+        pip install transformers
+        pip install datasets
+        pip install bitsandbytes
+        pip install accelerate
+        pip install peft
+    else
+        # 较旧版本的 PyTorch
+        pip install transformers==4.30.2
+        pip install datasets
+        
+        if [[ $MAX_CUDA == "11.5" || $MAX_CUDA == "11.4" || $MAX_CUDA == "11.3" ]]; then
+            pip install bitsandbytes-cuda113==0.27.2 || pip install bitsandbytes==0.27.2
+        else
+            pip install bitsandbytes==0.27.2
+        fi
+        
+        pip install accelerate==0.20.3
+        pip install peft==0.4.0
+    fi
+    
+    pip install wandb
+    
+    log_success "CUDA 兼容版本的 PyTorch 安装完成"
+}
+
+# 创建全新的 Conda 环境
+create_conda_env() {
+    if [ "$CONDA_AVAILABLE" != true ]; then
+        log_error "未找到 Conda，无法创建新环境"
+        return 1
+    fi
+    
+    # 获取新环境名称
+    read -p "请输入新环境名称 [llama_ft_new]: " ENV_NAME
+    ENV_NAME=${ENV_NAME:-llama_ft_new}
+    
+    log_info "正在创建新的 Conda 环境: $ENV_NAME..."
+    
+    # 创建新环境
+    conda create -n $ENV_NAME python=3.10 -y
+    
+    # 激活新环境
+    log_info "激活环境 $ENV_NAME..."
+    
+    # 这里不能直接使用 conda activate，因为脚本是在独立的 shell 中运行的
+    # 我们需要生成激活命令，让用户手动执行
+    echo ""
+    log_warning "需要手动激活新环境。请复制并执行以下命令:"
+    echo ""
+    echo "conda activate $ENV_NAME"
+    echo ""
+    
+    # 生成安装命令
+    echo "然后运行以下命令安装依赖:"
+    echo ""
+    
+    if [ "$MAX_CUDA" = "CPU" ]; then
+        # CPU 版本
+        echo "pip install torch==2.0.1 torchvision==0.15.2 torchaudio==2.0.2 --index-url https://download.pytorch.org/whl/cpu"
+        echo "pip install transformers==4.34.0 datasets bitsandbytes-cpu accelerate==0.23.0 peft==0.6.0 wandb"
+    else
+        # 根据 CUDA 版本选择 PyTorch
+        case $MAX_CUDA in
+            "12.1")
+                echo "pip install torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cu121"
+                echo "pip install transformers datasets bitsandbytes accelerate peft wandb"
+                ;;
+            "11.8"|"11.7"|"11.6")
+                echo "pip install torch==2.0.1 torchvision==0.15.2 torchaudio==2.0.2 --index-url https://download.pytorch.org/whl/cu117"
+                echo "pip install transformers datasets bitsandbytes accelerate peft wandb"
+                ;;
+            "11.5"|"11.4"|"11.3")
+                echo "pip install torch==1.13.1 torchvision==0.14.1 torchaudio==0.13.1 --index-url https://download.pytorch.org/whl/cu116"
+                echo "pip install transformers==4.30.2 datasets bitsandbytes-cuda113==0.27.2 accelerate==0.20.3 peft==0.4.0 wandb"
+                ;;
+            "11.2"|"11.1"|"11.0")
+                echo "pip install torch==1.10.1 torchvision==0.11.2 torchaudio==0.10.1 --extra-index-url https://download.pytorch.org/whl/cu113"
+                echo "pip install transformers==4.30.2 datasets bitsandbytes==0.27.2 accelerate==0.20.3 peft==0.4.0 wandb"
+                ;;
+            "10.2")
+                echo "pip install torch==1.9.1 torchvision==0.10.1 torchaudio==0.9.1 --extra-index-url https://download.pytorch.org/whl/cu102"
+                echo "pip install transformers==4.30.2 datasets bitsandbytes==0.27.2 accelerate==0.20.3 peft==0.4.0 wandb"
+                ;;
+            *)
+                echo "pip install torch==2.0.1 torchvision==0.15.2 torchaudio==2.0.2 --index-url https://download.pytorch.org/whl/cpu"
+                echo "pip install transformers==4.34.0 datasets bitsandbytes-cpu accelerate==0.23.0 peft==0.6.0 wandb"
+                ;;
+        esac
+    fi
+    
+    echo ""
+    log_success "Conda 环境创建完成。请按上述步骤操作。"
+}
+
+# 主函数
+main() {
+    # 检查当前环境
+    check_environment
+    
+    # 显示修复选项
+    show_options
+    
+    # 执行选择的修复选项
+    case $OPTION in
+        1)
+            downgrade_dependencies
+            ;;
+        2)
+            install_cpu_pytorch
+            ;;
+        3)
+            install_cuda_pytorch
+            ;;
+        4)
+            create_conda_env
+            ;;
+        5)
+            log_info "退出"
+            exit 0
+            ;;
+        *)
+            log_error "无效的选项: $OPTION"
+            exit 1
+            ;;
+    esac
+    
+    # 验证修复结果
+    echo ""
+    log_info "验证环境..."
+    python -c "import torch; print('PyTorch 版本:', torch.__version__); print('CUDA 可用:', torch.cuda.is_available(), ', CUDA 版本:', torch.version.cuda if torch.cuda.is_available() else 'N/A')"
+    pip list | grep -E "torch|accelerate|bitsandbytes|peft|transformers"
+    
+    echo ""
+    log_success "修复完成。请尝试重新运行您的脚本。"
+    echo ""
+    echo "推荐的运行命令:"
+    echo "  bash run_finetune.sh --use_cpu --max_samples 1000  # CPU 模式"
+    if [ "$CUDA_AVAILABLE" = "True" ] || [ "$MAX_CUDA" != "CPU" ]; then
+        echo "  bash run_finetune.sh  # GPU 模式"
+    fi
+    echo ""
+}
+
+# 执行主函数
+main
