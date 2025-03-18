@@ -38,6 +38,12 @@ chmod +x *.sh
 chmod +x src/*.py
 chmod +x data/*.py 2>/dev/null || true
 
+# 特别确保新脚本可执行
+if [ -f "fix_pytorch.sh" ]; then
+    chmod +x fix_pytorch.sh
+    echo "已添加执行权限到 fix_pytorch.sh"
+fi
+
 # 添加所有变更
 echo "添加所有变更..."
 git add .

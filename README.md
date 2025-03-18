@@ -2,6 +2,15 @@
 
 本项目提供了一个简单易用的框架，用于使用LCCC中文对话数据集对Llama-2-7b-chat模型进行微调训练，以提升模型的中文对话能力。项目专为微调初学者设计，流程简单清晰。
 
+## 环境要求
+
+- Python 3.8+
+- PyTorch 1.10+ (适配不同CUDA版本)
+- Transformers 4.30+
+- CUDA 10.2+ (可选，也支持CPU模式)
+- 16GB+ 内存
+- 磁盘空间: 至少30GB用于模型和数据存储
+
 ## 快速开始
 
 ### 1. 环境设置
@@ -53,6 +62,7 @@ python src/evaluate.py --model_path ./output/llama2-7b-chat-lccc
 ├── fix_and_run.sh            # 综合解决方案脚本
 ├── fix_model_path.sh         # 修复模型路径脚本
 ├── fix_glibcxx.sh            # 修复GLIBCXX错误的脚本
+├── fix_pytorch.sh            # 修复PyTorch与CUDA兼容性脚本
 ├── download_model.sh         # 下载LLaMA模型脚本
 ├── config/                   # 配置文件目录
 │   └── finetune_config.json  # 微调配置文件
@@ -272,4 +282,56 @@ A: 我们提供了一个下载脚本，可以帮助您获取LLaMA模型：
 - [Llama 2 论文](https://arxiv.org/abs/2307.09288)
 - [PEFT 库文档](https://huggingface.co/docs/peft/index)
 - [LCCC数据集论文](https://arxiv.org/abs/2008.03946)
-- [LCCC数据集](https://github.com/thu-coai/CDial-GPT) 
+- [LCCC数据集](https://github.com/thu-coai/CDial-GPT)
+
+## 综合修复方案
+
+如果您遇到多个问题，可以使用我们的综合解决方案脚本:
+
+```bash
+# 运行全部修复步骤
+./fix_and_run.sh --all
+
+# 或指定特定步骤
+./fix_and_run.sh --check_nvidia --fix_glibcxx --fix_model_path --use_cpu
+```
+
+## 针对特定环境的推荐配置
+
+### 低内存环境 (16GB以下)
+
+```bash
+bash run_finetune.sh --use_cpu --max_samples 1000 --per_device_train_batch_size 1 --gradient_accumulation_steps 16
+```
+
+### CUDA 10.2环境
+
+```bash
+# 1. 修复PyTorch安装
+./fix_pytorch.sh
+# 选择适合CUDA 10.2的安装方法
+
+# 2. 修复模型路径
+./fix_model_path.sh --model_path /opt/llama/Llama-2-7b-chat
+
+# 3. 运行微调
+bash run_finetune.sh --local_model --max_samples 1000
+```
+
+### 无GPU环境
+
+```bash
+# 1. 安装CPU版PyTorch
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+
+# 2. 运行微调
+bash run_finetune.sh --use_cpu --max_samples 1000 --per_device_train_batch_size 1 --gradient_accumulation_steps 16
+```
+
+## 贡献
+
+欢迎提交问题和贡献代码，帮助改进这个项目。
+
+## 许可证
+
+本项目使用MIT许可证。请注意，LLaMA模型有其自己的许可条款，使用前请查阅。 
