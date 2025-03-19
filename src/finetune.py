@@ -301,87 +301,15 @@ def main():
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     
-    # 根据是否使用CPU模式决定加载方式
-    if args.use_cpu:
-        logger.info(f"使用CPU模式加载模型（不使用量化）: {args.model_name_or_path}")
-        try:
-            # CPU模式：使用float32或float16，不使用量化
-            model = AutoModelForCausalLM.from_pretrained(
+     # CPU模式：使用float32或float16，不使用量化
+    model = AutoModelForCausalLM.from_pretrained(
                 args.model_name_or_path,
                 torch_dtype=getattr(torch, args.torch_dtype),
                 use_auth_token=args.use_auth_token,
                 trust_remote_code=True,  # 增加此参数以支持自定义模型代码
                 device_map="cpu"   # 明确指定使用CPU
             )
-            logger.info("模型加载成功")
-        except Exception as e:
-            logger.error(f"CPU模式加载模型失败: {e}")
-            
-            if "No file named" in str(e) and args.model_name_or_path.startswith("/"):
-                logger.error("本地模型文件路径有问题，请检查目录结构")
-                logger.error("建议运行: ./check_model.sh 检查模型文件")
-                logger.error("或使用: ./fix_model_path.sh 自动修复模型路径")
-            elif "No file named" in str(e):
-                logger.error("Hugging Face模型ID有问题，请检查是否拼写正确")
-                logger.error("请确认您已经登录Hugging Face账号: huggingface-cli login")
-            
-            logger.error("模型加载失败，程序退出")
-            sys.exit(1)
-    else:
-        try:
-            logger.info(f"尝试使用4bit量化加载模型: {args.model_name_or_path}")
-            # 检查是否存在GPU
-            if not torch.cuda.is_available():
-                raise RuntimeError("CUDA不可用，无法使用量化加载")
-                
-            # 使用BitsAndBytes进行4bit量化
-            bnb_config = BitsAndBytesConfig(
-                load_in_4bit=True,
-                bnb_4bit_use_double_quant=True,
-                bnb_4bit_quant_type="nf4",
-                bnb_4bit_compute_dtype=getattr(torch, args.torch_dtype)
-            )
-            
-            # 加载模型
-            model = AutoModelForCausalLM.from_pretrained(
-                args.model_name_or_path,
-                quantization_config=bnb_config,
-                token=args.token,
-                trust_remote_code=True,  # 增加此参数以支持自定义模型代码
-                device_map="auto"
-            )
-            logger.info("模型量化加载成功")
-        except Exception as e:
-            logger.warning(f"量化加载失败: {e}")
-            logger.info(f"回退到CPU模式加载模型: {args.model_name_or_path}")
-            
-            try:
-                # 回退到CPU模式
-                model = AutoModelForCausalLM.from_pretrained(
-                    args.model_name_or_path,
-                    torch_dtype=getattr(torch, args.torch_dtype),
-                    use_auth_token=args.use_auth_token,
-                    trust_remote_code=True,  # 增加此参数以支持自定义模型代码
-                    device_map="cpu",
-                    # 禁用量化以避免bitsandbytes相关错误
-                    load_in_8bit=False,
-                    load_in_4bit=False
-                )
-                args.use_cpu = True
-                logger.info("CPU模式加载模型成功")
-            except Exception as e2:
-                logger.error(f"CPU模式加载也失败: {e2}")
-                
-                if "No file named" in str(e2) and args.model_name_or_path.startswith("/"):
-                    logger.error("本地模型文件路径有问题，请检查目录结构")
-                    logger.error("建议运行: ./check_model.sh 检查模型文件")
-                    logger.error("或使用: ./fix_model_path.sh 自动修复模型路径")
-                elif "No file named" in str(e2):
-                    logger.error("Hugging Face模型ID有问题，请检查是否拼写正确")
-                    logger.error("请确认您已经登录Hugging Face账号: huggingface-cli login")
-                
-                logger.error("模型加载失败，程序退出")
-                sys.exit(1)
+    logger.info("模型加载成功")
     
     # 配置LoRA
     logger.info("配置LoRA适配器")
