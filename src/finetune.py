@@ -224,6 +224,48 @@ def setup_wandb(args):
         }
     )
 
+# 添加数据预处理功能
+def prepare_datasets_for_training(dataset, tokenizer, max_length=1024):
+    """将原始数据集转换为训练所需的格式"""
+    def format_and_tokenize(examples):
+        # 组合指令和输入（如果有）
+        prompts = []
+        for i in range(len(examples["instruction"])):
+            if examples["input"][i]:
+                prompt = f"指令：{examples['instruction'][i]}\n输入：{examples['input'][i]}\n回答："
+            else:
+                prompt = f"指令：{examples['instruction'][i]}\n回答："
+            prompts.append(prompt)
+        
+        # 组合完整的对话内容
+        texts = []
+        for i in range(len(prompts)):
+            texts.append(f"{prompts[i]}{examples['response'][i]}")
+        
+        # 对文本进行编码
+        encodings = tokenizer(
+            texts,
+            padding="max_length",
+            truncation=True,
+            max_length=max_length,
+            return_tensors="pt",
+        )
+        
+        # 创建标签，用于计算损失（将input_ids复制为labels）
+        encodings["labels"] = encodings["input_ids"].clone()
+        
+        return encodings
+    
+    # 处理数据集
+    processed_dataset = dataset.map(
+        format_and_tokenize,
+        batched=True,
+        remove_columns=dataset.column_names,  # 移除原始列
+        desc="处理数据集",
+    )
+    
+    return processed_dataset
+
 def main():
     """主函数"""
     # 解析参数
@@ -294,7 +336,8 @@ def main():
     logger.info(f"加载分词器: {args.model_name_or_path}")
     tokenizer = AutoTokenizer.from_pretrained(
         args.model_name_or_path,
-        use_auth_token=args.use_auth_token
+        use_auth_token=args.use_auth_token,
+        cache_dir="/opt/cache"  # 指定缓存目录
     )
     
     # 确保分词器有pad_token
@@ -340,6 +383,13 @@ def main():
         else:
             eval_dataset = None
             logger.warning("未找到验证集")
+        
+        # 处理数据集，转换为模型需要的格式
+        logger.info("预处理数据集，将其转换为模型所需格式...")
+        train_dataset = prepare_datasets_for_training(train_dataset, tokenizer)
+        if eval_dataset is not None:
+            eval_dataset = prepare_datasets_for_training(eval_dataset, tokenizer)
+        logger.info("数据集预处理完成")
     except Exception as e:
         logger.error(f"加载数据集失败: {e}")
         logger.error("请先运行 python data/prepare_dataset.py 准备数据集")
