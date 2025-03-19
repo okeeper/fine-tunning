@@ -94,7 +94,7 @@ def parse_args():
     
     # 设置默认参数
     default_args = {
-        "dataset_name": "thu-coai/lccc",
+        "dataset_name": "thu-coai/lccc-base",
         "output_dir": "./data/processed",
         "val_size": 0.1,
         "seed": 42,
@@ -141,8 +141,74 @@ def parse_args():
     
     return final_args_obj
 
+def load_lccc_dataset_manually(output_dir: str, seed: int = 42, val_size: float = 0.1):
+    """
+    手动加载LCCC数据集
+    
+    Args:
+        output_dir: 输出目录
+        seed: 随机种子
+        val_size: 验证集比例
+        
+    Returns:
+        完整的数据集
+    """
+    # 确保数据目录存在
+    data_dir = os.path.join(output_dir, "..", "lccc")
+    os.makedirs(data_dir, exist_ok=True)
+    
+    # 小型数据集路径
+    small_dataset_path = os.path.join(data_dir, "LCCC-small.json")
+    
+    # 下载小型数据集
+    if not os.path.exists(small_dataset_path):
+        logger.info(f"下载LCCC-small数据集到 {small_dataset_path}")
+        download_cmd = f"wget https://huggingface.co/datasets/thu-coai/lccc/resolve/main/LCCC-small.json -O {small_dataset_path}"
+        logger.info(f"执行命令: {download_cmd}")
+        os.system(download_cmd)
+    
+    # 加载小型数据集
+    logger.info(f"从本地加载LCCC数据集: {small_dataset_path}")
+    try:
+        with open(small_dataset_path, 'r', encoding='utf-8') as f:
+            raw_data = json.load(f)
+    except Exception as e:
+        logger.error(f"加载数据集失败: {e}")
+        logger.info("尝试直接通过curl下载")
+        curl_cmd = f"curl -L https://huggingface.co/datasets/thu-coai/lccc/resolve/main/LCCC-small.json -o {small_dataset_path}"
+        logger.info(f"执行命令: {curl_cmd}")
+        os.system(curl_cmd)
+        
+        try:
+            with open(small_dataset_path, 'r', encoding='utf-8') as f:
+                raw_data = json.load(f)
+        except Exception as e2:
+            logger.error(f"再次加载失败: {e2}")
+            logger.error("使用空数据集")
+            raw_data = []
+    
+    # 转换为Dataset格式
+    logger.info("转换数据为Hugging Face Dataset格式")
+    conversations = []
+    for dialog in raw_data:
+        if len(dialog) >= 2:  # 至少有一问一答
+            conversations.append({"dialog": dialog})
+    
+    # 创建数据集
+    dataset = Dataset.from_dict({"dialog": [conv["dialog"] for conv in conversations]})
+    
+    # 分割数据集
+    logger.info(f"分割数据集，验证集比例: {val_size}")
+    split_dataset = dataset.train_test_split(test_size=val_size, seed=seed)
+    
+    # 创建返回格式
+    complete_dataset = {"train": split_dataset["train"], "validation": split_dataset["test"]}
+    
+    return complete_dataset
+
 def prepare_lccc_dataset(
-    dataset_name: str = "thu-coai/lccc",
+    tokenizer=None,  # 虽然未使用，保留它以便调用函数时可以传递参数
+    dataset_name: str = "thu-coai/lccc-base",
     output_dir: str = "./data/processed",
     val_size: float = 0.1,
     seed: int = 42,
@@ -153,7 +219,8 @@ def prepare_lccc_dataset(
     准备LCCC中文对话数据集
     
     Args:
-        dataset_name: 数据集名称，thu-coai/lccc
+        tokenizer: 分词器（未使用但保留参数）
+        dataset_name: 数据集名称，可选 thu-coai/lccc-base 或 thu-coai/lccc
         output_dir: 输出目录
         val_size: 验证集比例
         seed: 随机种子
@@ -168,11 +235,49 @@ def prepare_lccc_dataset(
     
     # 第一次加载数据集后，保存数据集，目录名根据数据集名称命名
     logger.info(f"加载数据集: {dataset_name}")
-    dataset = load_dataset(dataset_name, 'base')
+    
+    try:
+        # 尝试使用标准方式加载数据集
+        dataset = load_dataset(dataset_name)
+        logger.info(f"成功加载数据集：{dataset_name}")
+    except Exception as e:
+        logger.warning(f"标准方式加载数据集失败: {e}")
+        logger.info("尝试使用备用方法...")
+        
+        try:
+            # 尝试使用force_download模式
+            dataset = load_dataset(dataset_name, download_mode="force_redownload")
+            logger.info("使用force_redownload模式成功")
+        except Exception as e2:
+            logger.warning(f"使用force_redownload模式失败: {e2}")
+            
+            # 回退到手动加载
+            logger.info("回退到手动加载LCCC数据集")
+            dataset = load_lccc_dataset_manually(output_dir, seed, val_size)
+    
+    # 检查数据集格式
+    sample_key = None
+    if "train" in dataset:
+        sample = dataset["train"][0] if len(dataset["train"]) > 0 else None
+        if sample:
+            if "dialog" in sample:
+                logger.info("检测到字段: dialog")
+                sample_key = "dialog"
+            elif "conversations" in sample:
+                logger.info("检测到字段: conversations")
+                sample_key = "conversations"
+            else:
+                logger.warning(f"未找到对话字段，可用字段: {list(sample.keys())}")
+    else:
+        logger.warning("数据集中没有'train'分割")
+    
+    if not sample_key:
+        logger.warning("无法确定对话字段，尝试使用'dialog'")
+        sample_key = "dialog"
     
     def convert_conversation_to_instruction(example):
         """将对话转换为指令格式"""
-        conversation = example["dialog"]
+        conversation = example[sample_key]
         
         # 过滤掉过长的对话
         if len(conversation) > max_turns * 2:
@@ -224,11 +329,20 @@ def prepare_lccc_dataset(
     
     # 转换数据集
     logger.info("转换对话为指令格式")
-    dataset = dataset.map(
-        convert_conversation_to_instruction, 
-        remove_columns=["dialog"],
-        num_proc=os.cpu_count()
-    )
+    try:
+        dataset = dataset.map(
+            convert_conversation_to_instruction, 
+            remove_columns=[sample_key],
+            num_proc=os.cpu_count()
+        )
+    except Exception as e:
+        logger.error(f"转换数据集失败: {e}")
+        logger.error("尝试单线程转换")
+        dataset = dataset.map(
+            convert_conversation_to_instruction, 
+            remove_columns=[sample_key],
+            num_proc=1
+        )
     
     # 过滤掉空对话
     logger.info("过滤空对话")
@@ -252,7 +366,10 @@ def prepare_lccc_dataset(
         logger.info("使用数据集自带的验证集")
         train_dataset = dataset["train"]
         # 按val_size时验证集的百分比，计算出train_dataset的长度*val_size，作为验证集的长度
-        val_dataset = dataset["validation"].select(range(int(len(train_dataset) * val_size)))
+        val_size_count = int(len(train_dataset) * val_size)
+        val_dataset_count = min(val_size_count, len(dataset["validation"]))
+        val_dataset = dataset["validation"].select(range(val_dataset_count))
+    
     # 保存处理后的数据集
     logger.info(f"保存处理后的数据集到 {output_dir}")
     train_dataset.save_to_disk(os.path.join(output_dir, "train"))
@@ -272,28 +389,35 @@ def prepare_lccc_dataset(
 
 def main():
     """主函数"""
-    args = parse_args()
-    
-    # 设置随机种子
-    random.seed(args.seed)
-    
-    # 检查是否为LCCC数据集
-    if not args.dataset_name.lower().startswith("thu-coai/lccc"):
-        logger.error(f"不支持的数据集: {args.dataset_name}")
-        raise ValueError(f"不支持的数据集: {args.dataset_name}，请使用LCCC数据集")
-    
-    logger.info(f"准备处理LCCC数据集: {args.dataset_name}")
-    # 准备LCCC数据集
-    train_dataset, val_dataset = prepare_lccc_dataset(
-        dataset_name=args.dataset_name,
-        output_dir=args.output_dir,
-        val_size=args.val_size,
-        seed=args.seed,
-        max_samples=args.max_samples,
-        max_turns=args.max_turns
-    )
-    
-    logger.info("数据集准备完成!")
+    try:
+        args = parse_args()
+        
+        # 设置随机种子
+        random.seed(args.seed)
+        
+        # 检查是否为LCCC数据集
+        if not args.dataset_name.lower().startswith("thu-coai/lccc"):
+            logger.error(f"不支持的数据集: {args.dataset_name}")
+            logger.error("当前仅支持LCCC中文对话数据集(thu-coai/lccc-base或thu-coai/lccc-large)")
+            raise ValueError(f"不支持的数据集: {args.dataset_name}，请使用LCCC数据集")
+        
+        logger.info(f"准备处理LCCC数据集: {args.dataset_name}")
+        # 准备LCCC数据集
+        train_dataset, val_dataset = prepare_lccc_dataset(
+            dataset_name=args.dataset_name,
+            output_dir=args.output_dir,
+            val_size=args.val_size,
+            seed=args.seed,
+            max_samples=args.max_samples,
+            max_turns=args.max_turns
+        )
+        
+        logger.info("数据集准备完成!")
+    except Exception as e:
+        logger.error(f"数据准备失败: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        sys.exit(1)
 
 if __name__ == "__main__":
     # 设置日志
@@ -304,4 +428,5 @@ if __name__ == "__main__":
     )
     logger = logging.getLogger(__name__)
     
+    import sys
     main() 
