@@ -226,7 +226,9 @@ import torch
 import traceback
 import argparse
 import gc
-from transformers import LlamaConfig, LlamaForCausalLM, LlamaTokenizer
+from transformers import LlamaConfig, LlamaTokenizer
+from tqdm import tqdm
+import psutil
 
 def convert_meta_to_hf(input_dir, output_dir, vocab_size=32000, model_size="7B", chat_model=True):
     """将Meta格式的LLaMA模型转换为Hugging Face格式"""
@@ -234,6 +236,10 @@ def convert_meta_to_hf(input_dir, output_dir, vocab_size=32000, model_size="7B",
         print(f"正在将Meta格式模型从 {input_dir} 转换到 {output_dir}...")
         print(f"词表大小: {vocab_size}, 模型大小: {model_size}, 聊天模型: {chat_model}")
         
+        # 分批处理的批次大小，调整以适应可用内存
+        # 减小批次大小可以减少内存使用，但会增加处理时间
+        BATCH_SIZE = 4
+
         # 加载Meta格式的模型权重
         consolidated_path = os.path.join(input_dir, "consolidated.00.pth")
         if not os.path.exists(consolidated_path):
@@ -250,31 +256,15 @@ def convert_meta_to_hf(input_dir, output_dir, vocab_size=32000, model_size="7B",
         with open(params_path, "r") as f:
             params = json.load(f)
         
-        # 打印内存使用情况
-        print(f"当前内存使用情况: {torch.cuda.memory_allocated() / 1024**2:.2f} MB (GPU), 系统内存情况见下方")
-        os.system("free -h")
+        # 打印系统内存使用情况
+        print("系统内存情况:")
+        print(f"总内存: {psutil.virtual_memory().total / (1024**3):.2f} GB")
+        print(f"可用内存: {psutil.virtual_memory().available / (1024**3):.2f} GB")
+        print(f"使用内存: {psutil.virtual_memory().used / (1024**3):.2f} GB")
+        print(f"内存使用率: {psutil.virtual_memory().percent}%")
         
-        # 加载权重
-        print("加载模型权重...")
-        try:
-            # 使用lazy loading减少内存使用
-            meta_weights = torch.load(consolidated_path, map_location="cpu")
-            print("模型权重加载成功!")
-        except RuntimeError as e:
-            if "out of memory" in str(e):
-                print(f"错误: 内存不足，无法加载模型权重: {e}")
-                print("尝试使用以下命令增加虚拟内存:")
-                print("sudo fallocate -l 16G /swapfile")
-                print("sudo chmod 600 /swapfile")
-                print("sudo mkswap /swapfile")
-                print("sudo swapon /swapfile")
-                sys.exit(1)
-            else:
-                print(f"错误: 加载模型权重失败: {e}")
-                sys.exit(1)
-        
-        # 创建Hugging Face配置
-        print("创建模型配置...")
+        # 创建输出目录
+        os.makedirs(output_dir, exist_ok=True)
         
         # 根据模型大小调整参数
         if model_size == "7B":
@@ -303,48 +293,8 @@ def convert_meta_to_hf(input_dir, output_dir, vocab_size=32000, model_size="7B",
         print(f"模型参数: dim={dim}, layers={n_layers}, heads={n_heads}, intermediate_size={intermediate_size}")
         print(f"使用词表大小: {vocab_size}")
         
-        # 使用指定的词表大小
-        config = LlamaConfig(
-            vocab_size=vocab_size,
-            hidden_size=dim,
-            num_hidden_layers=n_layers,
-            num_attention_heads=n_heads,
-            intermediate_size=intermediate_size,
-            max_position_embeddings=params.get("max_seq_len", 4096),
-            rms_norm_eps=params.get("norm_eps", 1e-5),
-            use_cache=True,
-            pad_token_id=0,
-            bos_token_id=1,
-            eos_token_id=2,
-        )
-        
-        # 打印配置信息
-        print("模型配置:")
-        print(config)
-        
-        # 如果是聊天模型，添加聊天模板
-        if chat_model:
-            config.chat_template = "{% for message in messages %}\n{% if message['role'] == 'system' %}\n<s>[INST] <<SYS>>\n{{ message['content'] }}\n<</SYS>>\n\n{% elif message['role'] == 'user' %}\n{% if loop.index > 1 %}</s>{% endif %}\n<s>[INST] {{ message['content'] }} [/INST]\n{% elif message['role'] == 'assistant' %}\n{{ message['content'] }}\n{% endif %}\n{% endfor %}"
-        
-        # 创建模型
-        print("创建模型结构...")
-        try:
-            torch.cuda.empty_cache()
-            gc.collect()
-            os.system("sync")  # 同步文件系统缓存
-            
-            # 检查可用内存
-            os.system("free -h")
-            
-            model = LlamaForCausalLM(config)
-            print("模型结构创建成功!")
-        except Exception as e:
-            print(f"创建模型结构失败: {e}")
-            traceback.print_exc()
-            sys.exit(1)
-        
         # 构建权重映射字典
-        print("转换权重格式...")
+        print("创建权重映射...")
         weight_map = {
             "tok_embeddings.weight": "model.embed_tokens.weight",
             "norm.weight": "model.norm.weight",
@@ -373,83 +323,143 @@ def convert_meta_to_hf(input_dir, output_dir, vocab_size=32000, model_size="7B",
                 f"layers.{i}.ffn_norm.weight": f"model.layers.{i}.post_attention_layernorm.weight",
             })
         
-        print(f"完成权重映射表创建: {len(weight_map)} 个参数")
+        # 使用指定的词表大小创建配置
+        config = LlamaConfig(
+            vocab_size=vocab_size,
+            hidden_size=dim,
+            num_hidden_layers=n_layers,
+            num_attention_heads=n_heads,
+            intermediate_size=intermediate_size,
+            max_position_embeddings=params.get("max_seq_len", 4096),
+            rms_norm_eps=params.get("norm_eps", 1e-5),
+            use_cache=True,
+            pad_token_id=0,
+            bos_token_id=1,
+            eos_token_id=2,
+        )
         
-        # 转换权重
-        new_state_dict = {}
-        missing_keys = []
-        shape_mismatch_keys = []
+        # 如果是聊天模型，添加聊天模板
+        if chat_model:
+            config.chat_template = "{% for message in messages %}\n{% if message['role'] == 'system' %}\n<s>[INST] <<SYS>>\n{{ message['content'] }}\n<</SYS>>\n\n{% elif message['role'] == 'user' %}\n{% if loop.index > 1 %}</s>{% endif %}\n<s>[INST] {{ message['content'] }} [/INST]\n{% elif message['role'] == 'assistant' %}\n{{ message['content'] }}\n{% endif %}\n{% endfor %}"
         
-        # 检查嵌入层大小是否匹配
-        embed_key = "tok_embeddings.weight"
-        if embed_key in meta_weights:
-            meta_embed = meta_weights[embed_key]
-            meta_vocab_size = meta_embed.shape[0]
+        # 保存模型配置
+        print("保存模型配置...")
+        config_path = os.path.join(output_dir, "config.json")
+        with open(config_path, "w") as f:
+            f.write(config.to_json_string())
+        
+        # 分批处理权重文件
+        print("开始分批处理模型权重...")
+        print(f"使用批次大小: {BATCH_SIZE}")
+        
+        # 检查是否有多个分片文件
+        consolidated_files = [f for f in os.listdir(input_dir) if f.startswith("consolidated.") and f.endswith(".pth")]
+        if len(consolidated_files) > 1:
+            print(f"检测到多个权重分片文件: {consolidated_files}")
+            print("将对每个分片文件分别处理...")
+            shard_files = sorted(consolidated_files)
+        else:
+            shard_files = ["consolidated.00.pth"]
+        
+        # 创建PyTorch模型目录
+        os.makedirs(os.path.join(output_dir, "pytorch_model.bin.index.json"), exist_ok=True)
+        
+        # 初始化索引文件
+        index = {
+            "metadata": {
+                "total_size": 0
+            },
+            "weight_map": {}
+        }
+        
+        # 处理每个分片文件
+        for shard_idx, shard_file in enumerate(shard_files):
+            print(f"处理分片 {shard_idx+1}/{len(shard_files)}: {shard_file}")
+            shard_path = os.path.join(input_dir, shard_file)
             
-            if meta_vocab_size != vocab_size:
-                print(f"警告: 词表大小不匹配 - Meta模型: {meta_vocab_size}, 配置: {vocab_size}")
-                print(f"将调整embed_tokens.weight的大小以匹配配置中的词表大小")
-        
-        print("处理权重映射...")
-        for meta_name, meta_tensor in meta_weights.items():
-            if meta_name in weight_map:
-                hf_name = weight_map[meta_name]
+            # 加载权重
+            print(f"加载分片权重文件: {shard_path}")
+            try:
+                meta_weights = torch.load(shard_path, map_location="cpu")
+                print(f"分片权重加载成功，包含 {len(meta_weights)} 个权重参数")
+            except Exception as e:
+                print(f"加载分片权重失败: {e}")
+                continue
+            
+            # 对权重键进行分组，以便分批处理
+            all_keys = list(meta_weights.keys())
+            num_batches = (len(all_keys) + BATCH_SIZE - 1) // BATCH_SIZE
+            
+            print(f"将 {len(all_keys)} 个权重参数分为 {num_batches} 批处理")
+            
+            # 分批处理权重
+            for batch_idx in range(num_batches):
+                start_idx = batch_idx * BATCH_SIZE
+                end_idx = min((batch_idx + 1) * BATCH_SIZE, len(all_keys))
+                batch_keys = all_keys[start_idx:end_idx]
                 
-                # 特殊处理嵌入层，处理词表大小不匹配的情况
-                if meta_name == "tok_embeddings.weight":
-                    meta_vocab_size = meta_tensor.shape[0]
-                    
-                    if meta_vocab_size != vocab_size:
-                        if meta_vocab_size < vocab_size:
-                            # 如果Meta模型词表更小，则填充
-                            print(f"将embed_tokens.weight从 {meta_vocab_size} 填充到 {vocab_size} 词")
-                            padding = torch.zeros(
-                                (vocab_size - meta_vocab_size, meta_tensor.shape[1]),
-                                dtype=meta_tensor.dtype
-                            )
-                            meta_tensor = torch.cat([meta_tensor, padding], dim=0)
-                        else:
-                            # 如果Meta模型词表更大，则截断
-                            print(f"将embed_tokens.weight从 {meta_vocab_size} 截断到 {vocab_size} 词")
-                            meta_tensor = meta_tensor[:vocab_size, :]
+                print(f"处理批次 {batch_idx+1}/{num_batches}，包含 {len(batch_keys)} 个参数")
                 
-                # 分段处理大型张量以节省内存
-                if meta_tensor.numel() * meta_tensor.element_size() > 1e9:  # 大于1GB的张量
-                    print(f"处理大型张量: {meta_name} -> {hf_name} (大小: {meta_tensor.shape})")
+                # 创建当前批次的状态字典
+                batch_state_dict = {}
+                total_size = 0
                 
-                new_state_dict[hf_name] = meta_tensor
-            else:
-                missing_keys.append(meta_name)
+                # 处理当前批次中的每个键
+                for meta_name in batch_keys:
+                    if meta_name in weight_map:
+                        hf_name = weight_map[meta_name]
+                        meta_tensor = meta_weights[meta_name]
+                        
+                        # 特殊处理嵌入层，处理词表大小不匹配的情况
+                        if meta_name == "tok_embeddings.weight":
+                            meta_vocab_size = meta_tensor.shape[0]
+                            
+                            if meta_vocab_size != vocab_size:
+                                if meta_vocab_size < vocab_size:
+                                    # 如果Meta模型词表更小，则填充
+                                    print(f"将embed_tokens.weight从 {meta_vocab_size} 填充到 {vocab_size} 词")
+                                    padding = torch.zeros(
+                                        (vocab_size - meta_vocab_size, meta_tensor.shape[1]),
+                                        dtype=meta_tensor.dtype
+                                    )
+                                    meta_tensor = torch.cat([meta_tensor, padding], dim=0)
+                                else:
+                                    # 如果Meta模型词表更大，则截断
+                                    print(f"将embed_tokens.weight从 {meta_vocab_size} 截断到 {vocab_size} 词")
+                                    meta_tensor = meta_tensor[:vocab_size, :]
+                        
+                        # 跟踪权重大小
+                        param_size = meta_tensor.numel() * meta_tensor.element_size()
+                        total_size += param_size
+                        
+                        # 添加到当前批次的状态字典
+                        batch_state_dict[hf_name] = meta_tensor
+                        
+                        # 更新索引
+                        shard_name = f"pytorch_model-{shard_idx}-{batch_idx}.bin"
+                        index["weight_map"][hf_name] = shard_name
+                
+                # 保存当前批次
+                if batch_state_dict:
+                    shard_path = os.path.join(output_dir, f"pytorch_model-{shard_idx}-{batch_idx}.bin")
+                    print(f"保存分片 {shard_path}, 大小: {total_size / (1024**2):.2f} MB")
+                    torch.save(batch_state_dict, shard_path)
+                    index["metadata"]["total_size"] += total_size
+                
+                # 清理内存
+                del batch_state_dict
+                gc.collect()
+                torch.cuda.empty_cache()
+            
+            # 清理分片权重
+            del meta_weights
+            gc.collect()
+            torch.cuda.empty_cache()
         
-        # 报告转换统计
-        print(f"转换了 {len(new_state_dict)} 个权重参数")
-        if missing_keys:
-            print(f"跳过了 {len(missing_keys)} 个未映射的参数")
-            if len(missing_keys) < 10:
-                print(f"未映射参数: {missing_keys}")
-            else:
-                print(f"前5个未映射参数示例: {missing_keys[:5]}")
-        
-        # 加载转换后的权重
-        print("加载转换后的权重到模型...")
-        try:
-            model.load_state_dict(new_state_dict, strict=False)
-            print("权重加载成功!")
-        except Exception as e:
-            print(f"权重加载失败: {e}")
-            traceback.print_exc()
-            sys.exit(1)
-        
-        # 保存模型
-        print(f"保存模型到 {output_dir}...")
-        try:
-            os.makedirs(output_dir, exist_ok=True)
-            model.save_pretrained(output_dir)
-            print("模型保存成功!")
-        except Exception as e:
-            print(f"模型保存失败: {e}")
-            traceback.print_exc()
-            sys.exit(1)
+        # 保存索引文件
+        print("保存模型索引文件...")
+        with open(os.path.join(output_dir, "pytorch_model.bin.index.json"), "w") as f:
+            json.dump(index, f, indent=2)
         
         # 准备分词器
         print("准备分词器...")
@@ -513,8 +523,24 @@ def convert_meta_to_hf(input_dir, output_dir, vocab_size=32000, model_size="7B",
         with open(os.path.join(output_dir, "special_tokens_map.json"), "w") as f:
             json.dump(special_tokens, f, indent=2)
         
+        # 创建generation_config.json
+        generation_config = {
+            "bos_token_id": 1,
+            "eos_token_id": 2,
+            "pad_token_id": 0,
+            "transformers_version": "4.30.2"
+        }
+        
+        with open(os.path.join(output_dir, "generation_config.json"), "w") as f:
+            json.dump(generation_config, f, indent=2)
+        
         print("转换完成！")
         print(f"Hugging Face格式的模型已保存到: {output_dir}")
+        print("可以使用以下方式加载模型:")
+        print(f"from transformers import AutoTokenizer, AutoModelForCausalLM")
+        print(f"tokenizer = AutoTokenizer.from_pretrained('{output_dir}')")
+        print(f"model = AutoModelForCausalLM.from_pretrained('{output_dir}')")
+        return True
     except Exception as e:
         print(f"转换过程中发生错误: {e}")
         traceback.print_exc()
@@ -543,7 +569,11 @@ log_info "是否为聊天模型: $([ $CHAT_MODEL -eq 1 ] && echo '是' || echo '
 # 创建输出目录
 mkdir -p "$OUTPUT_DIR"
 
-# 运行Python脚本（增加max-old-space-size参数以避免内存不足）
+# 安装必要的Python库
+log_info "安装必要的Python库..."
+pip install -q psutil tqdm
+
+# 运行Python脚本
 if PYTHONPATH="$PYTHONPATH:$(dirname "$INPUT_DIR")" python -u "$CONVERT_SCRIPT" \
     --input_dir "$INPUT_DIR" \
     --output_dir "$OUTPUT_DIR" \
