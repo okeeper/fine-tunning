@@ -271,6 +271,21 @@ def main():
     # 解析参数
     args = parse_args()
     
+    # 检查CUDA是否可用
+    if torch.cuda.is_available():
+        logger.info(f"检测到可用的CUDA设备: {torch.cuda.get_device_name(0)}")
+        logger.info(f"CUDA版本: {torch.version.cuda}")
+        logger.info(f"GPU计算能力: {torch.cuda.get_device_capability()}")
+        
+        # 强制使用GPU，不考虑use_cpu参数
+        args.use_cpu = False
+        logger.info("将使用GPU进行训练")
+    else:
+        logger.warning("未检测到可用的CUDA设备，无法使用GPU训练")
+        logger.warning("如果您确信系统有GPU，请检查CUDA安装和驱动程序")
+        args.use_cpu = True
+        logger.warning("将使用CPU模式，但训练速度会非常慢")
+    
     # 检查模型路径是否正确（优先使用Hugging Face模型ID）
     if args.model_name_or_path and args.model_name_or_path.startswith("/opt/llama/"):
         logger.warning(f"检测到本地模型路径: {args.model_name_or_path}")
@@ -344,14 +359,56 @@ def main():
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     
-     # CPU模式：使用float32或float16，不使用量化
-    model = AutoModelForCausalLM.from_pretrained(
+    # 根据运行环境选择不同的模型加载方式
+    if args.use_cpu:
+        # CPU模式：使用float32，不使用量化
+        logger.info("使用CPU模式加载模型，不使用量化")
+        model = AutoModelForCausalLM.from_pretrained(
+            args.model_name_or_path,
+            torch_dtype=torch.float32,  # CPU模式下使用float32
+            use_auth_token=args.use_auth_token,
+            trust_remote_code=True,
+            device_map="cpu"
+        )
+    else:
+        # GPU模式：根据CUDA版本和GPU能力选择不同的加载方式
+        cuda_version = torch.version.cuda
+        if cuda_version is not None and float(cuda_version) < 11.0:
+            # CUDA 10.x 版本需要特殊处理，不支持某些高级功能
+            logger.warning(f"检测到CUDA版本为{cuda_version}，低于推荐的CUDA 11")
+            logger.warning("将使用基本的GPU加载方式，不使用高级量化功能")
+            
+            # 使用基本的GPU模式，float16精度
+            model = AutoModelForCausalLM.from_pretrained(
                 args.model_name_or_path,
                 torch_dtype=getattr(torch, args.torch_dtype),
                 use_auth_token=args.use_auth_token,
-                trust_remote_code=True,  # 增加此参数以支持自定义模型代码
-                device_map="cpu"   # 明确指定使用CPU
+                trust_remote_code=True,
+                device_map="auto"
             )
+            # 将模型移动到GPU
+            device = torch.device("cuda:0")
+            model = model.to(device)
+            logger.info(f"模型已加载到 {device}")
+        else:
+            # CUDA 11.x及以上版本，可以使用全部功能
+            logger.info("使用GPU模式加载模型，使用4bit量化")
+            # 使用4bit量化配置
+            bnb_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_use_double_quant=True,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_compute_dtype=getattr(torch, args.torch_dtype)
+            )
+            
+            model = AutoModelForCausalLM.from_pretrained(
+                args.model_name_or_path,
+                quantization_config=bnb_config,
+                use_auth_token=args.use_auth_token,
+                trust_remote_code=True,
+                device_map="auto"
+            )
+    
     logger.info("模型加载成功")
     
     # 配置LoRA
@@ -364,6 +421,11 @@ def main():
         task_type=TaskType.CAUSAL_LM,
         target_modules=args.target_modules
     )
+    
+    # 在使用量化模型时，需要先进行准备
+    if not args.use_cpu and torch.version.cuda is not None and float(torch.version.cuda) >= 11.0:
+        logger.info("准备模型用于量化训练")
+        model = prepare_model_for_kbit_training(model)
     
     # 获取PEFT模型
     model = get_peft_model(model, lora_config)
@@ -412,8 +474,11 @@ def main():
         save_total_limit=args.save_total_limit,
         report_to="wandb",
         remove_unused_columns=False,
-        # 如果使用CPU，禁用fp16
-        fp16=not args.use_cpu
+        # GPU训练参数
+        fp16=not args.use_cpu and args.torch_dtype == "float16",
+        bf16=not args.use_cpu and args.torch_dtype == "bfloat16",
+        # 显式设置设备
+        no_cuda=args.use_cpu
     )
     
     # 创建Trainer
