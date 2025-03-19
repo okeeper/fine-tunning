@@ -7,3 +7,4 @@ wandb/
 .env.production.local
 /logs
 local_file.md
+.cache

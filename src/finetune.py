@@ -228,19 +228,15 @@ def setup_wandb(args):
 def prepare_datasets_for_training(dataset, tokenizer, max_length=1024):
     """将原始数据集转换为训练所需的格式"""
     def format_and_tokenize(examples):
-        # 组合指令和输入（如果有）
-        prompts = []
+        # 组合指令、输入和回答到一个循环中
+        texts = []
         for i in range(len(examples["instruction"])):
             if examples["input"][i]:
                 prompt = f"指令：{examples['instruction'][i]}\n输入：{examples['input'][i]}\n回答："
             else:
                 prompt = f"指令：{examples['instruction'][i]}\n回答："
-            prompts.append(prompt)
-        
-        # 组合完整的对话内容
-        texts = []
-        for i in range(len(prompts)):
-            texts.append(f"{prompts[i]}{examples['response'][i]}")
+            # 直接组合完整对话内容
+            texts.append(f"{prompt}{examples['response'][i]}")
         
         # 对文本进行编码
         encodings = tokenizer(
@@ -250,6 +246,10 @@ def prepare_datasets_for_training(dataset, tokenizer, max_length=1024):
             max_length=max_length,
             return_tensors="pt",
         )
+        
+        # 移除token_type_ids，因为Llama模型不使用此参数
+        if 'token_type_ids' in encodings:
+            del encodings['token_type_ids']
         
         # 创建标签，用于计算损失（将input_ids复制为labels）
         encodings["labels"] = encodings["input_ids"].clone()
@@ -394,19 +394,7 @@ def main():
         logger.error(f"加载数据集失败: {e}")
         logger.error("请先运行 python data/prepare_dataset.py 准备数据集")
         sys.exit(1)
-    
-    # 如果使用CPU模式，调整批次大小和梯度累积步数
-    if args.use_cpu:
-        logger.warning("CPU模式下训练速度会非常慢，建议减小批次大小和数据量")
-        # 如果批次大小大于1，则减小到1
-        if args.per_device_train_batch_size > 1:
-            logger.info(f"CPU模式下将批次大小从 {args.per_device_train_batch_size} 减小到 1")
-            args.per_device_train_batch_size = 1
-        
-        # 增加梯度累积步数
-        if args.gradient_accumulation_steps < 16:
-            logger.info(f"CPU模式下将梯度累积步数从 {args.gradient_accumulation_steps} 增加到 16")
-            args.gradient_accumulation_steps = 16
+
     
     # 配置训练参数
     training_args = TrainingArguments(
