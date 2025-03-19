@@ -168,7 +168,7 @@ def prepare_lccc_dataset(
     
     # 第一次加载数据集后，保存数据集，目录名根据数据集名称命名
     logger.info(f"加载数据集: {dataset_name}")
-    dataset = load_dataset(dataset_name, 'base')
+    dataset = load_dataset(dataset_name)
     
     def convert_conversation_to_instruction(example):
         """将对话转换为指令格式"""
