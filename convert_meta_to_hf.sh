@@ -71,7 +71,7 @@ function detect_vocab_size_from_params {
     if command -v jq &> /dev/null; then
         # 使用jq解析JSON
         vocab_size=$(jq -r '.vocab_size // .n_vocab // .dim_vocab // empty' "$params_file")
-        if [ -z "$vocab_size" ] || [ "$vocab_size" = "null" ]; then
+        if [ -z "$vocab_size" ] || [ "$vocab_size" = "null" ] || [ "$vocab_size" -le 0 ]; then
             return 1
         fi
         echo $vocab_size
@@ -79,7 +79,7 @@ function detect_vocab_size_from_params {
     else
         # 如果没有jq，使用grep和sed
         vocab_size=$(grep -o '"vocab_size":[0-9]*\|"n_vocab":[0-9]*\|"dim_vocab":[0-9]*' "$params_file" | head -1 | sed -E 's/.*:([0-9]+).*/\1/')
-        if [ -z "$vocab_size" ]; then
+        if [ -z "$vocab_size" ] || [ "$vocab_size" -le 0 ]; then
             return 1
         fi
         echo $vocab_size
@@ -193,14 +193,14 @@ if [ -z "$VOCAB_SIZE" ]; then
     # 首先尝试从params.json检测
     DETECTED_VOCAB_SIZE=$(detect_vocab_size_from_params "$PARAMS_FILE" || echo "")
     
-    if [ -n "$DETECTED_VOCAB_SIZE" ]; then
+    if [ -n "$DETECTED_VOCAB_SIZE" ] && [ "$DETECTED_VOCAB_SIZE" -gt 0 ]; then
         log_info "从params.json检测到词表大小: $DETECTED_VOCAB_SIZE"
         VOCAB_SIZE=$DETECTED_VOCAB_SIZE
     else
         # 尝试从tokenizer.model检测
         DETECTED_VOCAB_SIZE=$(detect_vocab_size_from_tokenizer "$TOKENIZER_FILE" || echo "")
         
-        if [ -n "$DETECTED_VOCAB_SIZE" ]; then
+        if [ -n "$DETECTED_VOCAB_SIZE" ] && [ "$DETECTED_VOCAB_SIZE" -gt 0 ]; then
             log_info "从tokenizer.model检测到词表大小: $DETECTED_VOCAB_SIZE"
             VOCAB_SIZE=$DETECTED_VOCAB_SIZE
         else
@@ -211,9 +211,9 @@ if [ -z "$VOCAB_SIZE" ]; then
     fi
 fi
 
-# 确保VOCAB_SIZE是整数
-if ! [[ "$VOCAB_SIZE" =~ ^[0-9]+$ ]]; then
-    error_exit "词表大小必须为整数: $VOCAB_SIZE"
+# 确保VOCAB_SIZE是正整数
+if ! [[ "$VOCAB_SIZE" =~ ^[0-9]+$ ]] || [ "$VOCAB_SIZE" -le 0 ]; then
+    error_exit "词表大小必须为正整数，检测到的值无效: $VOCAB_SIZE"
 fi
 
 # 创建转换脚本
